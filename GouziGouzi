@@ -712,11 +712,14 @@ function EspInterface.getWeapon(player)
 end
 
 function EspInterface.isFriendly(player)
-	return player.Team and player.Team == localPlayer.Team
+    return (player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character.HumanoidRootPart:FindFirstChild("TeammateLabel"))
+        or (player.Team and player.Team == localPlayer.Team)
 end
 
+
 function EspInterface.getTeamColor(player)
-	return player.Team and player.Team.TeamColor and player.Team.TeamColor.Color and 
+	return (player.Character:FindFirstChild("HumanoidRootPart") and player.Character.HumanoidRootPart:FindFirstChild("TeammateLabel"))
+		or (player.Team and player.Team == localPlayer.Team)
 end
 
 function EspInterface.getCharacter(player)
