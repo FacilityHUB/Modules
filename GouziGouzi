@@ -551,7 +551,7 @@ local EspInterface = {
 		textFont = 2,
 		limitDistance = false,
 		maxDistance = 150,
-		useTeamColor = true,
+		useTeamColor = false,
 	},
 	teamSettings = {
 		enemy = {
