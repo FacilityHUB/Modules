@@ -712,19 +712,11 @@ function EspInterface.getWeapon(player)
 end
 
 function EspInterface.isFriendly(player)
-    return player.Team 
-        and player.Team == localPlayer.Team 
-        and player.Character 
-        and player.Character.HumanoidRootPart 
-        and player.Character.HumanoidRootPart.TeammateLabel
+	return player.Team and player.Team == localPlayer.Team
 end
 
 function EspInterface.getTeamColor(player)
-	return player.Team 
-	and player.Team == localPlayer.Team 
-	and player.Character 
-	and player.Character.HumanoidRootPart 
-	and player.Character.HumanoidRootPart.TeammateLabel
+	return player.Team and player.Team.TeamColor and player.Team.TeamColor.Color and 
 end
 
 function EspInterface.getCharacter(player)
