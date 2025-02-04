@@ -550,7 +550,7 @@ local EspInterface = {
 		textSize = 13,
 		textFont = 2,
 		limitDistance = false,
-		maxDistance = 500,
+		maxDistance = 5000,
 		useTeamColor = false,
 	},
 	teamSettings = {
