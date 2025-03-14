@@ -163,6 +163,7 @@ end
 
 local rainbowActive = false
 local rainbowCoroutine
+local rainbowSpeed = 0.1  -- La vitesse par défaut pour l'effet rainbow (plus faible = plus rapide)
 
 -- Fonction pour activer ou désactiver le rainbow
 function LightingController.toggleRainbow(enabled)
@@ -175,7 +176,7 @@ function LightingController.toggleRainbow(enabled)
                     local hue = tick() % 5 / 5  -- Modifie la valeur de l'hue pour créer un effet arc-en-ciel
                     local color = Color3.fromHSV(hue, 1, 1)  -- Génère une couleur arc-en-ciel (HSB)
                     LightingController.setPartColor(color)
-                    wait(0.1)  -- Attends 0.1 seconde avant de changer la couleur (ajuste pour ralentir ou accélérer)
+                    wait(rainbowSpeed)  -- Utilise la vitesse configurée par le slider
                 end
             end)
             coroutine.resume(rainbowCoroutine)
