@@ -164,6 +164,7 @@ end
 local rainbowActive = false
 local rainbowCoroutine
 local rainbowSpeed = 0.1  -- La vitesse par défaut pour l'effet rainbow (plus faible = plus rapide)
+local currentColor = Color3.fromRGB(255, 255, 255)  -- Couleur actuelle des parties
 
 -- Fonction pour activer ou désactiver le rainbow
 function LightingController.toggleRainbow(enabled)
@@ -171,11 +172,16 @@ function LightingController.toggleRainbow(enabled)
     if rainbowActive then
         if not rainbowCoroutine then
             rainbowCoroutine = coroutine.create(function()
+                local targetColor
                 while rainbowActive do
                     -- Change les couleurs des parties à travers un arc-en-ciel
                     local hue = tick() % 5 / 5  -- Modifie la valeur de l'hue pour créer un effet arc-en-ciel
-                    local color = Color3.fromHSV(hue, 1, 1)  -- Génère une couleur arc-en-ciel (HSB)
-                    LightingController.setPartColor(color)
+                    targetColor = Color3.fromHSV(hue, 1, 1)  -- Génère une couleur arc-en-ciel (HSB)
+
+                    -- Interpolation (lerp) pour un changement de couleur plus smooth
+                    currentColor = currentColor:Lerp(targetColor, 0.05)  -- Lerp avec un facteur de transition de 0.05
+                    LightingController.setPartColor(currentColor)
+
                     wait(rainbowSpeed)  -- Utilise la vitesse configurée par le slider
                 end
             end)
