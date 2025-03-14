@@ -135,4 +135,49 @@ function LightingController.setSkybox(skyboxName)
     end
 end
 
+function LightingController.setMapColor(color)
+    for _, part in pairs(workspace:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Color = color
+        end
+    end
+end
+
+function LightingController.setMapMaterial(material)
+    for _, part in pairs(workspace:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Material = material
+        end
+    end
+end
+
+function LightingController.setTransparency(transparency)
+    for _, part in pairs(workspace:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = transparency
+        end
+    end
+end
+
+local rainbowActive = false
+local rainbowSpeed = 1
+local lastColorChange = tick()
+local rainbowColor = Color3.fromRGB(255, 0, 0)
+
+function LightingController.toggleRainbow(speed)
+    rainbowActive = not rainbowActive
+    rainbowSpeed = speed or 1
+end
+
+function LightingController.updateRainbow()
+    if rainbowActive then
+        local elapsedTime = tick() - lastColorChange
+        if elapsedTime >= rainbowSpeed then
+            rainbowColor = Color3.fromHSV(tick() % 5 / 5, 1, 1) -- Change la couleur continuellement
+            LightingController.setMapColor(rainbowColor)
+            lastColorChange = tick()
+        end
+    end
+end
+
 return LightingController
