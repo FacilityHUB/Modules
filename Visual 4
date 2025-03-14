@@ -161,6 +161,35 @@ function LightingController.setMaterial(materialName)
     end
 end
 
+local rainbowActive = false
+local rainbowCoroutine
+
+-- Fonction pour activer ou désactiver le rainbow
+function LightingController.toggleRainbow(enabled)
+    rainbowActive = enabled
+    if rainbowActive then
+        if not rainbowCoroutine then
+            rainbowCoroutine = coroutine.create(function()
+                while rainbowActive do
+                    -- Change les couleurs des parties à travers un arc-en-ciel
+                    local hue = tick() % 5 / 5  -- Modifie la valeur de l'hue pour créer un effet arc-en-ciel
+                    local color = Color3.fromHSV(hue, 1, 1)  -- Génère une couleur arc-en-ciel (HSB)
+                    LightingController.setPartColor(color)
+                    wait(0.1)  -- Attends 0.1 seconde avant de changer la couleur (ajuste pour ralentir ou accélérer)
+                end
+            end)
+            coroutine.resume(rainbowCoroutine)
+        end
+    else
+        if rainbowCoroutine then
+            rainbowActive = false
+            coroutine.close(rainbowCoroutine)  -- Arrête la coroutine pour arrêter le rainbow
+            rainbowCoroutine = nil
+            LightingController.setPartColor(Color3.fromRGB(255, 255, 255))  -- Remet les parties en blanc ou couleur par défaut
+        end
+    end
+end
+
 function LightingController.setPartColor(color)
     for _, part in pairs(workspace:GetDescendants()) do
         if part:IsA("BasePart") then
