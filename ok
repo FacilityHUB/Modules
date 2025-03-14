@@ -1,9 +1,6 @@
 local LightingController = {}
 
 local Lighting = game:GetService("Lighting")
-local colorChangeSpeed = 2  
-local isRainbowEnabled = false  
-local isMultiColorEnabled = true   
 
 LightingController.Materials = {
     "Plastic",
@@ -164,17 +161,23 @@ function LightingController.setMaterial(materialName)
     end
 end
 
-local function applyRainbowEffect()
-    if not isRainbowEnabled then return end
-    local color = isMultiColorEnabled and Color3.new(math.abs(math.sin(tick() * colorChangeSpeed)),
-                                                     math.abs(math.sin(tick() * colorChangeSpeed + math.pi / 3)),
-                                                     math.abs(math.sin(tick() * colorChangeSpeed + 2 * math.pi / 3)))
-                 or Color3.fromRGB(255, 0, 0)  
+local isMultiColorEnabled = false
+local colorChangeSpeed = 0.5
 
-    LightingController.setPartColor(color)
+function LightingController.toggleRainbowEffect(enabled)
+    isMultiColorEnabled = enabled
+    if isMultiColorEnabled then
+        while isMultiColorEnabled do
+            local color = Color3.new(
+                math.abs(math.sin(tick() * colorChangeSpeed)),
+                math.abs(math.sin(tick() * colorChangeSpeed + math.pi / 3)),
+                math.abs(math.sin(tick() * colorChangeSpeed + 2 * math.pi / 3))
+            )
+            LightingController.setPartColor(color) -- Appliquer la couleur
+            wait(0.1) -- Attendre avant de mettre à jour la couleur
+        end
+    end
 end
-
-game:GetService("RunService").Heartbeat:Connect(applyRainbowEffect)
 
 function LightingController.setPartColor(color)
     for _, part in pairs(workspace:GetDescendants()) do
