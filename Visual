@@ -1,0 +1,19 @@
+local LightingController = {}
+
+local Lighting = game:GetService("Lighting")
+
+function LightingController.setLightingSettings(settings)
+    if settings.Ambient then Lighting.Ambient = settings.Ambient end
+    if settings.ColorShift_Bottom then Lighting.ColorShift_Bottom = settings.ColorShift_Bottom end
+    if settings.ColorShift_Top then Lighting.ColorShift_Top = settings.ColorShift_Top end
+    if settings.FogColor then Lighting.FogColor = settings.FogColor end
+    if settings.FogEnd then Lighting.FogEnd = settings.FogEnd end
+    if settings.FogStart then Lighting.FogStart = settings.FogStart end
+    if settings.ExposureCompensation then Lighting.ExposureCompensation = settings.ExposureCompensation end
+    if settings.Brightness then Lighting.Brightness = settings.Brightness end
+    if settings.ClockTime then Lighting.ClockTime = settings.ClockTime end
+    if settings.GlobalShadows ~= nil then Lighting.GlobalShadows = settings.GlobalShadows end
+    if settings.Technology then Lighting.Technology = settings.Technology end
+end
+
+return LightingController
