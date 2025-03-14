@@ -1,7 +1,6 @@
 local LightingController = {}
 
 local Lighting = game:GetService("Lighting")
-local Workspace = game:GetService("Workspace")
 
 LightingController.Materials = {
     "Plastic",
@@ -162,10 +161,10 @@ function LightingController.setMaterial(materialName)
     end
 end
 
-function LightingController.setTransparency(transparencyValue)
-    for _, obj in pairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            obj.Transparency = transparencyValue
+function LightingController.setPartColor(color)
+    for _, part in pairs(workspace:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Color = color
         end
     end
 end
