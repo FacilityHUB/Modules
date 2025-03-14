@@ -163,8 +163,8 @@ end
 
 local rainbowActive = false
 local rainbowCoroutine
-local rainbowSpeed = 0.1  -- La vitesse par défaut pour l'effet rainbow (plus faible = plus rapide)
-local currentColor = Color3.fromRGB(255, 255, 255)  -- Couleur actuelle des parties
+local rainbowSpeed = 0.1  -- La vitesse du changement de couleur
+local colorChangeSpeed = 1  -- Vitesse du changement de couleur
 
 -- Fonction pour activer ou désactiver le rainbow
 function LightingController.toggleRainbow(enabled)
@@ -172,16 +172,19 @@ function LightingController.toggleRainbow(enabled)
     if rainbowActive then
         if not rainbowCoroutine then
             rainbowCoroutine = coroutine.create(function()
-                local targetColor
+                local t = 0  -- Variable de temps pour la fonction trigonométrique
                 while rainbowActive do
-                    -- Change les couleurs des parties à travers un arc-en-ciel
-                    local hue = tick() % 5 / 5  -- Modifie la valeur de l'hue pour créer un effet arc-en-ciel
-                    targetColor = Color3.fromHSV(hue, 1, 1)  -- Génère une couleur arc-en-ciel (HSB)
+                    -- Génération des couleurs arc-en-ciel avec la fonction math.sin
+                    local color = Color3.new(
+                        math.abs(math.sin(t * colorChangeSpeed)),
+                        math.abs(math.sin(t * colorChangeSpeed + math.pi / 3)),
+                        math.abs(math.sin(t * colorChangeSpeed + 2 * math.pi / 3))
+                    )
+                    
+                    -- Applique la couleur aux parties
+                    LightingController.setPartColor(color)
 
-                    -- Interpolation (lerp) pour un changement de couleur plus smooth
-                    currentColor = currentColor:Lerp(targetColor, 0.05)  -- Lerp avec un facteur de transition de 0.05
-                    LightingController.setPartColor(currentColor)
-
+                    t = t + 0.1  -- Incrémente le temps pour les changements continus
                     wait(rainbowSpeed)  -- Utilise la vitesse configurée par le slider
                 end
             end)
@@ -192,7 +195,7 @@ function LightingController.toggleRainbow(enabled)
             rainbowActive = false
             coroutine.close(rainbowCoroutine)  -- Arrête la coroutine pour arrêter le rainbow
             rainbowCoroutine = nil
-            LightingController.setPartColor(Color3.fromRGB(255, 255, 255))  -- Remet les parties en blanc ou couleur par défaut
+            LightingController.setPartColor(Color3.fromRGB(255, 255, 255))  -- Remet les parties en couleur par défaut
         end
     end
 end
