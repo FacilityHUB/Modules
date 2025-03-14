@@ -14,6 +14,11 @@ function LightingController.setLightingSettings(settings)
     if settings.ClockTime then Lighting.ClockTime = settings.ClockTime end
     if settings.GlobalShadows ~= nil then Lighting.GlobalShadows = settings.GlobalShadows end
     if settings.Technology then Lighting.Technology = settings.Technology end
+
+    if settings.NoFog then
+        Lighting.FogStart = 100000
+        Lighting.FogEnd = 100000
+    end
 end
 
 LightingController.SkyboxPresets = {
@@ -127,18 +132,6 @@ function LightingController.setSkybox(skyboxName)
 
     for property, value in pairs(preset) do
         sky[property] = value
-    end
-end
-
-function LightingController.setNoFog()
-    -- Supprimer la brume
-    Lighting.FogEnd = 100000
-
-    -- Supprimer tous les objets de type Atmosphere
-    for i, v in pairs(Lighting:GetDescendants()) do
-        if v:IsA("Atmosphere") then
-            v:Destroy()
-        end
     end
 end
 
