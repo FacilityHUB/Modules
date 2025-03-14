@@ -2,6 +2,19 @@ local LightingController = {}
 
 local Lighting = game:GetService("Lighting")
 
+LightingController.Materials = {
+    "Plastic",
+    "Wood",
+    "Metal",
+    "SmoothPlastic",
+    "Concrete",
+    "Slate",
+    "Marble",
+    "SmoothStuds",
+    "CorrodedMetal",
+    "Fabric"
+}
+
 function LightingController.setLightingSettings(settings)
     if settings.Ambient then Lighting.Ambient = settings.Ambient end
     if settings.ColorShift_Bottom then Lighting.ColorShift_Bottom = settings.ColorShift_Bottom end
@@ -135,48 +148,16 @@ function LightingController.setSkybox(skyboxName)
     end
 end
 
-function LightingController.setMapColor(color)
-    for _, part in pairs(workspace:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.Color = color
+function LightingController.setMaterial(materialName)
+    local materialEnum = Enum.Material[materialName]
+    if materialEnum then
+        for _, object in pairs(workspace:GetDescendants()) do
+            if object:IsA("BasePart") then
+                object.Material = materialEnum
+            end
         end
-    end
-end
-
-function LightingController.setMapMaterial(material)
-    for _, part in pairs(workspace:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.Material = material
-        end
-    end
-end
-
-function LightingController.setTransparency(transparency)
-    for _, part in pairs(workspace:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.Transparency = transparency
-        end
-    end
-end
-
-local rainbowActive = false
-local rainbowSpeed = 1
-local lastColorChange = tick()
-local rainbowColor = Color3.fromRGB(255, 0, 0)
-
-function LightingController.toggleRainbow(speed)
-    rainbowActive = not rainbowActive
-    rainbowSpeed = speed or 1
-end
-
-function LightingController.updateRainbow()
-    if rainbowActive then
-        local elapsedTime = tick() - lastColorChange
-        if elapsedTime >= rainbowSpeed then
-            rainbowColor = Color3.fromHSV(tick() % 5 / 5, 1, 1) -- Change la couleur continuellement
-            LightingController.setMapColor(rainbowColor)
-            lastColorChange = tick()
-        end
+    else
+        warn("Matériau invalide : " .. materialName)
     end
 end
 
