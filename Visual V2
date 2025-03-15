@@ -20,7 +20,7 @@ LightingController.Materials = {
     "Diamond Plate",
     "Fabric",
     "Foil",
-    "Forcefield",
+    "ForceField",
     "Glacier",
     "Glass",
     "Granite",
