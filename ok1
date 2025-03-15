@@ -164,7 +164,7 @@ function LightingController.setMaterial(materialName)
         warn("Matériau invalide : " .. materialName)
     end
 end
--- Fonction pour commencer l'effet arc-en-ciel
+
 function LightingController.startRainbowEffect()
     while isMultiColorEnabled do
         local color = Color3.new(
@@ -172,17 +172,20 @@ function LightingController.startRainbowEffect()
             math.abs(math.sin(tick() * colorChangeSpeed + math.pi / 3)),
             math.abs(math.sin(tick() * colorChangeSpeed + 2 * math.pi / 3))
         )
-        LightingController.setPartColor(color) -- Appliquer la couleur
-        wait(0.1) -- Attendre un peu avant de mettre à jour la couleur
+        LightingController.setPartColor(color) 
+        wait(0.1) 
     end
 end
 
--- Fonction pour activer ou désactiver l'effet Rainbow
 function LightingController.toggleRainbowEffect(state)
     isMultiColorEnabled = state
     if isMultiColorEnabled then
-        LightingController.startRainbowEffect() -- Démarrer l'effet si activé
+        LightingController.startRainbowEffect() 
     end
+end
+
+function LightingController.setColorChangeSpeed(speed)
+    colorChangeSpeed = speed
 end
 
 function LightingController.setPartColor(color)
