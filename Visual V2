@@ -1,0 +1,227 @@
+local LightingController = {}
+
+local Lighting = game:GetService("Lighting")
+local TweenService = game:GetService("TweenService")
+
+local isMultiColorEnabled = false
+
+LightingController.Materials = {
+    "Asphalt",
+    "Basalt",
+    "Brick",
+    "Cardboard",
+    "Carpet",
+    "CeramicTiles",
+    "ClayRoofTiles",
+    "Cobblestone",
+    "Concrete",
+    "Corroded Metal",
+    "Cracked Lava",
+    "Diamond Plate",
+    "Fabric",
+    "Foil",
+    "Forcefield",
+    "Glacier",
+    "Glass",
+    "Granite",
+    "Grass",
+    "Ground",
+    "Ice",
+    "LeafyGrass",
+    "Leather",
+    "Limestone",
+    "Marble",
+    "Metal",
+    "Mud",
+    "Neon",
+    "Pavement",
+    "Pebble",
+    "Plaster",
+    "Plastic",
+    "Rock",
+    "RoofShingles",
+    "Rubber",
+    "Salt",
+    "Sand",
+    "Sandstone",
+    "Slate",
+    "Smooth Plastic",
+    "Snow",
+    "Wood",
+    "Wood Planks"
+}
+
+function LightingController.setLightingSettings(settings)
+    if settings.Ambient then Lighting.Ambient = settings.Ambient end
+    if settings.ColorShift_Bottom then Lighting.ColorShift_Bottom = settings.ColorShift_Bottom end
+    if settings.ColorShift_Top then Lighting.ColorShift_Top = settings.ColorShift_Top end
+    if settings.FogColor then Lighting.FogColor = settings.FogColor end
+    if settings.FogEnd then Lighting.FogEnd = settings.FogEnd end
+    if settings.FogStart then Lighting.FogStart = settings.FogStart end
+    if settings.ExposureCompensation then Lighting.ExposureCompensation = settings.ExposureCompensation end
+    if settings.Brightness then Lighting.Brightness = settings.Brightness end
+    if settings.ClockTime then Lighting.ClockTime = settings.ClockTime end
+    if settings.GlobalShadows ~= nil then Lighting.GlobalShadows = settings.GlobalShadows end
+    if settings.Technology then Lighting.Technology = settings.Technology end
+
+    if settings.NoFog then
+        Lighting.FogStart = 100000
+        Lighting.FogEnd = 100000
+    end
+end
+
+LightingController.SkyboxPresets = {
+    ["Sunset"] = {
+        SkyboxBk = "rbxassetid://600830446",
+        SkyboxDn = "rbxassetid://600831635",
+        SkyboxFt = "rbxassetid://600832720",
+        SkyboxLf = "rbxassetid://600886090",
+        SkyboxRt = "rbxassetid://600833862",
+        SkyboxUp = "rbxassetid://600835177"
+    },
+    ["Arctic"] = {
+        SkyboxBk = "http://www.roblox.com/asset/?id=225469390",
+        SkyboxDn = "http://www.roblox.com/asset/?id=225469395",
+        SkyboxFt = "http://www.roblox.com/asset/?id=225469403",
+        SkyboxLf = "http://www.roblox.com/asset/?id=225469450",
+        SkyboxRt = "http://www.roblox.com/asset/?id=225469471",
+        SkyboxUp = "http://www.roblox.com/asset/?id=225469481"
+    },
+    ["Space"] = {
+        SkyboxBk = "http://www.roblox.com/asset/?id=166509999",
+        SkyboxDn = "http://www.roblox.com/asset/?id=166510057",
+        SkyboxFt = "http://www.roblox.com/asset/?id=166510116",
+        SkyboxLf = "http://www.roblox.com/asset/?id=166510092",
+        SkyboxRt = "http://www.roblox.com/asset/?id=166510131",
+        SkyboxUp = "http://www.roblox.com/asset/?id=166510114"
+    },
+    ["Roblox Default"] = {
+        SkyboxBk = "rbxasset://textures/sky/sky512_bk.tex",
+        SkyboxDn = "rbxasset://textures/sky/sky512_dn.tex",
+        SkyboxFt = "rbxasset://textures/sky/sky512_ft.tex",
+        SkyboxLf = "rbxasset://textures/sky/sky512_lf.tex",
+        SkyboxRt = "rbxasset://textures/sky/sky512_rt.tex",
+        SkyboxUp = "rbxasset://textures/sky/sky512_up.tex"
+    },
+    ["Red Night"] = {
+        SkyboxBk = "http://www.roblox.com/Asset/?ID=401664839",
+        SkyboxDn = "http://www.roblox.com/Asset/?ID=401664862",
+        SkyboxFt = "http://www.roblox.com/Asset/?ID=401664960",
+        SkyboxLf = "http://www.roblox.com/Asset/?ID=401664881",
+        SkyboxRt = "http://www.roblox.com/Asset/?ID=401664901",
+        SkyboxUp = "http://www.roblox.com/Asset/?ID=401664936"
+    },
+    ["Deep Space"] = {
+        SkyboxBk = "http://www.roblox.com/asset/?id=159248188",
+        SkyboxDn = "http://www.roblox.com/asset/?id=159248183",
+        SkyboxFt = "http://www.roblox.com/asset/?id=159248187",
+        SkyboxLf = "http://www.roblox.com/asset/?id=159248173",
+        SkyboxRt = "http://www.roblox.com/asset/?id=159248192",
+        SkyboxUp = "http://www.roblox.com/asset/?id=159248176"
+    },
+    ["Pink Skies"] = {
+        SkyboxBk = "http://www.roblox.com/asset/?id=151165214",
+        SkyboxDn = "http://www.roblox.com/asset/?id=151165197",
+        SkyboxFt = "http://www.roblox.com/asset/?id=151165224",
+        SkyboxLf = "http://www.roblox.com/asset/?id=151165191",
+        SkyboxRt = "http://www.roblox.com/asset/?id=151165206",
+        SkyboxUp = "http://www.roblox.com/asset/?id=151165227"
+    },
+    ["Purple Sunset"] = {
+        SkyboxBk = "rbxassetid://264908339",
+        SkyboxDn = "rbxassetid://264907909",
+        SkyboxFt = "rbxassetid://264909420",
+        SkyboxLf = "rbxassetid://264909758",
+        SkyboxRt = "rbxassetid://264908886",
+        SkyboxUp = "rbxassetid://264907379"
+    },
+    ["Blue Night"] = {
+        SkyboxBk = "http://www.roblox.com/Asset/?ID=12064107",
+        SkyboxDn = "http://www.roblox.com/Asset/?ID=12064152",
+        SkyboxFt = "http://www.roblox.com/Asset/?ID=12064121",
+        SkyboxLf = "http://www.roblox.com/Asset/?ID=12063984",
+        SkyboxRt = "http://www.roblox.com/Asset/?ID=12064115",
+        SkyboxUp = "http://www.roblox.com/Asset/?ID=12064131"
+    },
+    ["Blossom Daylight"] = {
+        SkyboxBk = "http://www.roblox.com/asset/?id=271042516",
+        SkyboxDn = "http://www.roblox.com/asset/?id=271077243",
+        SkyboxFt = "http://www.roblox.com/asset/?id=271042556",
+        SkyboxLf = "http://www.roblox.com/asset/?id=271042310",
+        SkyboxRt = "http://www.roblox.com/asset/?id=271042467",
+        SkyboxUp = "http://www.roblox.com/asset/?id=271077958"
+    },
+    ["Blue Nebula"] = {
+        SkyboxBk = "http://www.roblox.com/asset?id=135207744",
+        SkyboxDn = "http://www.roblox.com/asset?id=135207662",
+        SkyboxFt = "http://www.roblox.com/asset?id=135207770",
+        SkyboxLf = "http://www.roblox.com/asset?id=135207615",
+        SkyboxRt = "http://www.roblox.com/asset?id=135207695",
+        SkyboxUp = "http://www.roblox.com/asset?id=135207794"
+    },
+    ["Blue Planet"] = {
+        SkyboxBk = "rbxassetid://218955819",
+        SkyboxDn = "rbxassetid://218953419",
+        SkyboxFt = "rbxassetid://218954524",
+        SkyboxLf = "rbxassetid://218958493",
+        SkyboxRt = "rbxassetid://218957134",
+        SkyboxUp = "rbxassetid://218950090"
+    }
+}
+
+function LightingController.setSkybox(skyboxName)
+    local preset = LightingController.SkyboxPresets[skyboxName]
+    if not preset then return end
+
+    local sky = Lighting:FindFirstChildOfClass("Sky")
+    if not sky then
+        sky = Instance.new("Sky")
+        sky.Parent = Lighting
+    end
+
+    for property, value in pairs(preset) do
+        sky[property] = value
+    end
+end
+
+function LightingController.setMaterial(materialName)
+    local materialEnum = Enum.Material[materialName]
+    if materialEnum then
+        for _, object in pairs(workspace:GetDescendants()) do
+            if object:IsA("BasePart") then
+                object.Material = materialEnum
+            end
+        end
+    else
+        warn("Matériau invalide : " .. materialName)
+    end
+end
+
+function LightingController.startRainbowEffect()
+    while isMultiColorEnabled do
+        local color = Color3.new(
+            math.abs(math.sin(tick() * 0.5)),
+            math.abs(math.sin(tick() * 0.5 + math.pi / 3)),
+            math.abs(math.sin(tick() * 0.5 + 2 * math.pi / 3))
+        )
+        LightingController.setPartColor(color) 
+        wait(0.1)
+    end
+end
+
+function LightingController.toggleRainbowEffect(state)
+    isMultiColorEnabled = state
+    if isMultiColorEnabled then
+        LightingController.startRainbowEffect() 
+    end
+end
+
+function LightingController.setPartColor(color)
+    for _, part in pairs(workspace:GetDescendants()) do
+        if part:IsA("BasePart") and not part.Parent:FindFirstChildOfClass("Humanoid") then
+            part.Color = color
+        end
+    end
+end
+
+return LightingController
