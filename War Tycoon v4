@@ -13,7 +13,7 @@ Aimbot.Configuration = {
     AliveCheck = false,
     FovCheck = true,
 
-    Fov = false,
+    Fov = true,
     Visible = false,
     Thickness = 0.6,
     Color = Color3.fromRGB(255, 255, 255),
