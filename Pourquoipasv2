@@ -708,28 +708,34 @@ end
 
 -- game specific functions
 function EspInterface.getWeapon(player)
-	return "Unknown"
+    return "Unknown"
 end
 
 function EspInterface.isFriendly(player)
-	return player.Team and player.Team == localPlayer.Team
+    return player.Team and localPlayer.Team and player.Team == localPlayer.Team
 end
 
 function EspInterface.getTeamColor(player)
-	return player.Team and player.Team.TeamColor and player.Team.TeamColor.Color
+    return player.Team and player.Team.TeamColor and player.Team.TeamColor.Color
 end
 
 function EspInterface.getCharacter(player)
-	return player.Character
+    if player.Character then
+        return player.Character
+    end
+    return workspace:FindFirstChild(player.Name)
 end
 
 function EspInterface.getHealth(player)
-	local character = player and EspInterface.getCharacter(player)
-	local humanoid = character and findFirstChildOfClass(character, "Humanoid")
-	if humanoid then
-		return humanoid.Health, humanoid.MaxHealth
-	end
-	return 100, 100
+    local character = EspInterface.getCharacter(player)
+    if not character then
+        return 100, 100
+    end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        return humanoid.Health, humanoid.MaxHealth
+    end
+    return 100, 100
 end
 
 return EspInterface
