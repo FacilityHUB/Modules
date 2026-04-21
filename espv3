@@ -37,7 +37,7 @@ local min3 = Vector3.zero.Min
 local max3 = Vector3.zero.Max
 
 -- constants
-local HEALTH_BAR_OFFSET = Vector2.new(5, 0)
+local HEALTH_BAR_OFFSET = Vector2.new(8, 0)
 local HEALTH_TEXT_OFFSET = Vector2.new(3, 0)
 local HEALTH_BAR_OUTLINE_OFFSET = Vector2.new(0, 1)
 local NAME_OFFSET = Vector2.new(0, 2)
@@ -335,8 +335,7 @@ function EspObject:Render()
         healthText.Outline = options.healthTextOutline
         healthText.OutlineColor = parseColor(self, options.healthTextOutlineColor, true)
         healthText.Position = lerp2(barTo, barFrom, self.health / self.maxHealth)
-            - healthText.TextBounds * 0.5
-            - HEALTH_TEXT_OFFSET
+            - Vector2.new(healthText.TextBounds.X + HEALTH_TEXT_OFFSET.X + HEALTH_BAR_OFFSET.X + 2, healthText.TextBounds.Y * 0.5)
     end
 
     visible.name.Visible = enabled and onScreen and options.name
@@ -348,7 +347,7 @@ function EspObject:Render()
         name.Transparency = options.nameColor[2]
         name.Outline = options.nameOutline
         name.OutlineColor = parseColor(self, options.nameOutlineColor, true)
-        name.Position = (corners.topLeft + corners.topRight) * 0.5 - Vector2.yAxis * name.TextBounds.Y - NAME_OFFSET
+        name.Position = (corners.topLeft + corners.topRight) * 0.5 - Vector2.new(name.TextBounds.X * 0.5, name.TextBounds.Y + NAME_OFFSET.Y)
     end
 
     visible.distance.Visible = enabled and onScreen and self.distance and options.distance
