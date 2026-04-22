@@ -38,7 +38,8 @@ local max3 = Vector3.zero.Max
 
 -- constants
 local HEALTH_BAR_OFFSET = Vector2.new(8, 0)
-local HEALTH_TEXT_OFFSET = Vector2.new(3, 0)
+-- CORRECTION 2 : HP text décalé davantage à gauche (était 3, maintenant 10)
+local HEALTH_TEXT_OFFSET = Vector2.new(10, 0)
 local HEALTH_BAR_OUTLINE_OFFSET = Vector2.new(0, 1)
 local NAME_OFFSET = Vector2.new(0, 2)
 local DISTANCE_OFFSET = Vector2.new(0, 2)
@@ -162,8 +163,14 @@ function EspObject:Construct()
             tracerOutline = self:_create("Line", { Thickness = 3, Visible = false }),
             tracer = self:_create("Line", { Thickness = 1, Visible = false }),
             boxFill = self:_create("Square", { Filled = true, Visible = false }),
-            boxOutline = self:_create("Square", { Thickness = 3, Visible = false }),
+
+            -- CORRECTION 1 : Ordre de rendu = outer outline → box → inner outline
+            -- L'outline extérieure est dessinée EN PREMIER (derrière)
+            boxOuterOutline = self:_create("Square", { Thickness = 3, Visible = false }),
             box = self:_create("Square", { Thickness = 1, Visible = false }),
+            -- L'outline intérieure est dessinée EN DERNIER (devant, à l'intérieur)
+            boxInnerOutline = self:_create("Square", { Thickness = 1, Visible = false }),
+
             healthBarOutline = self:_create("Line", { Thickness = 3, Visible = false }),
             healthBar = self:_create("Line", { Thickness = 1, Visible = false }),
             healthText = self:_create("Text", { Center = true, Visible = false }),
@@ -196,7 +203,6 @@ end
 function EspObject:Update()
     local interface = self.interface
 
-    -- Si friendly, on coupe direct tout
     if interface.isFriendly(self.player) then
         self.enabled = false
         self.onScreen = false
@@ -262,7 +268,6 @@ function EspObject:Render()
     local options = self.options
     local corners = self.corners
 
-    -- Si pas d'options (friendly), on cache tout et on sort
     if not options then
         for _, drawing in next, visible do
             drawing.Visible = false
@@ -278,20 +283,42 @@ function EspObject:Render()
         return
     end
 
-    visible.box.Visible = enabled and onScreen and options.box
-    visible.boxOutline.Visible = visible.box.Visible and options.boxOutline
-    if visible.box.Visible then
+    -- CORRECTION 1 : Box avec outline extérieure (expand) ET outline intérieure (shrink)
+    local boxVisible = enabled and onScreen and options.box
+    visible.box.Visible = boxVisible
+    visible.boxOuterOutline.Visible = boxVisible and options.boxOutline
+    visible.boxInnerOutline.Visible = boxVisible and options.boxOutline
+
+    if boxVisible then
+        local tl = corners.topLeft
+        local br = corners.bottomRight
+        local boxSize = br - tl
+
+        -- Box principale
         local box = visible.box
-        box.Position = corners.topLeft
-        box.Size = corners.bottomRight - corners.topLeft
+        box.Position = tl
+        box.Size = boxSize
         box.Color = parseColor(self, options.boxColor[1])
         box.Transparency = options.boxColor[2]
 
-        local boxOutline = visible.boxOutline
-        boxOutline.Position = box.Position
-        boxOutline.Size = box.Size
-        boxOutline.Color = parseColor(self, options.boxOutlineColor[1], true)
-        boxOutline.Transparency = options.boxOutlineColor[2]
+        local outlineColor = parseColor(self, options.boxOutlineColor[1], true)
+        local outlineTransp = options.boxOutlineColor[2]
+
+        -- Outline EXTÉRIEURE : on agrandit la box de 1px de chaque côté
+        local outerOutline = visible.boxOuterOutline
+        outerOutline.Position = tl - Vector2.new(1, 1)
+        outerOutline.Size = boxSize + Vector2.new(2, 2)
+        outerOutline.Color = outlineColor
+        outerOutline.Transparency = outlineTransp
+        outerOutline.Thickness = 1
+
+        -- Outline INTÉRIEURE : on rétrécit la box de 1px de chaque côté
+        local innerOutline = visible.boxInnerOutline
+        innerOutline.Position = tl + Vector2.new(1, 1)
+        innerOutline.Size = boxSize - Vector2.new(2, 2)
+        innerOutline.Color = outlineColor
+        innerOutline.Transparency = outlineTransp
+        innerOutline.Thickness = 1
     end
 
     visible.boxFill.Visible = enabled and onScreen and options.boxFill
@@ -334,10 +361,17 @@ function EspObject:Render()
         healthText.Transparency = options.healthTextColor[2]
         healthText.Outline = options.healthTextOutline
         healthText.OutlineColor = parseColor(self, options.healthTextOutlineColor, true)
-        healthText.Position = lerp2(barTo, barFrom, self.health / self.maxHealth)
-            - Vector2.new(healthText.TextBounds.X + HEALTH_TEXT_OFFSET.X + HEALTH_BAR_OFFSET.X + 2, healthText.TextBounds.Y * 0.5)
+
+        local currentBarPos = lerp2(barTo, barFrom, self.health / self.maxHealth)
+        -- CORRECTION 2 : HP text bien décalé à gauche de la barre (HEALTH_TEXT_OFFSET agrandi + gap supplémentaire)
+        healthText.Position = currentBarPos
+            - Vector2.new(
+                healthText.TextBounds.X * 0.5 + HEALTH_TEXT_OFFSET.X + HEALTH_BAR_OFFSET.X + 6,
+                healthText.TextBounds.Y * 0.5
+            )
     end
 
+    -- CORRECTION 3 : Name forcé AU-DESSUS de la box, jamais à l'intérieur
     visible.name.Visible = enabled and onScreen and options.name
     if visible.name.Visible then
         local name = visible.name
@@ -347,7 +381,19 @@ function EspObject:Render()
         name.Transparency = options.nameColor[2]
         name.Outline = options.nameOutline
         name.OutlineColor = parseColor(self, options.nameOutlineColor, true)
-        name.Position = (corners.topLeft + corners.topRight) * 0.5 - Vector2.new(name.TextBounds.X * 0.5, name.TextBounds.Y + NAME_OFFSET.Y)
+
+        -- Position calculée : centre haut de la box, puis on remonte de la hauteur du texte + offset
+        -- On s'assure que le bas du texte est toujours au-dessus du bord supérieur de la box
+        local topCenter = (corners.topLeft + corners.topRight) * 0.5
+        local textHeight = name.TextBounds.Y
+
+        -- Le texte est positionné de sorte que son bord inférieur soit juste au-dessus de la box
+        name.Position = Vector2.new(
+            topCenter.X - name.TextBounds.X * 0.5,
+            corners.topLeft.Y - textHeight - NAME_OFFSET.Y
+        )
+        -- On désactive Center pour contrôler manuellement la position X
+        name.Center = false
     end
 
     visible.distance.Visible = enabled and onScreen and self.distance and options.distance
@@ -475,7 +521,6 @@ function ChamObject:Update()
     local interface = self.interface
     local character = interface.getCharacter(self.player)
 
-    -- Si friendly, on coupe direct
     if interface.isFriendly(self.player) then
         highlight.Enabled = false
         return
