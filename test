@@ -2,20 +2,28 @@
 --!nolint UnknownGlobal
 --[[
     ESP Fusion — Generic ESP Library
-    Fusionne : mstudio45 ESP + EspInterface + MM2 ESP
-    
+
     Features :
-      • Drawing API pur (aucun Path2D, aucune dépendance Instance fragile)
+      • Drawing API pur (aucun Path2D, aucune dependance Instance fragile)
       • N teams (teamSettings dynamique par key string)
       • Support joueurs, NPC, BasePart, Model
-      • Skeleton Motor6D-based (rig custom supporté)
+      • Skeleton Motor6D-based (rig custom supporte)
       • Bounding box incluant Accessory handles
       • Box 2D (outer + inner outline), Box 3D, tracer, arrows, chams
       • Health bar lerp dying→healthy, name, distance, weapon
       • Rainbow mode, callbacks BeforeUpdate/AfterUpdate
       • MaxDistance par team, whitelist
       • Singleton getgenv() — un seul chargement par session
-      • Plug-and-play : 7 fonctions à override, tout le reste tourne
+
+    Performance :
+      • Une seule boucle RenderStepped pour toutes les entites, au lieu
+        d'une connexion Heartbeat par objet
+      • Drawings crees a la demande : une entite avec seulement les box
+        alloue 4 objets au lieu de 47
+      • Deux cadences : geometrie chaque frame, donnees lentes (arme,
+        personnage, config, chams) a 10 Hz via sharedSettings.slowInterval
+      • Cull par distance avant tout calcul de bounding box
+      • Highlight ecrit uniquement quand une valeur change
 --]]
 
 -- ─── SINGLETON ───────────────────────────────────────────────────────────────
@@ -307,11 +315,14 @@ end
 local Lib = {
     _loaded      = false,
     _cache       = {},   -- [player|instance] = { EspObject, ChamObject? }
+    _objects     = {},   -- every live object, driven by one loop
     _connections = {},
 
     whitelist    = {},   -- { userId, ... } — vide = tout le monde
 
     sharedSettings = {
+        slowInterval  = 0.1,
+        debug         = false,
         textSize      = 13,
         textFont      = 2,
         useTeamColor  = false,
@@ -438,6 +449,8 @@ end
 
 -- ─── OFFSETS ─────────────────────────────────────────────────────────────────
 
+local ONE            = Vector2.new(1,  1)
+local TWO            = Vector2.new(2,  2)
 local HBAR_OFFSET    = Vector2.new(8,  0)
 local HBAR_OL_OFFSET = Vector2.new(0,  1)
 local NAME_OFFSET    = Vector2.new(0,  2)
@@ -457,10 +470,7 @@ function EspObject.new(entity, lib)
     self._skelSeq = nil
     self._skelCache = {}
     self:_build()
-    self._conn = RunService.Heartbeat:Connect(function()
-        self:Update()
-        self:Render()
-    end)
+    lib._objects[self] = true
     return self
 end
 
@@ -471,294 +481,368 @@ function EspObject:_draw(class, props)
 end
 
 function EspObject:_build()
-    local D = {}
+    -- drawings are created on first use, an entity with only boxes enabled
+    -- allocates four objects instead of forty seven
+    self.D = {}
 
-    -- box 2D
-    D.boxOuter = self:_draw("Square", { Thickness=3, Visible=false })
-    D.box      = self:_draw("Square", { Thickness=1, Visible=false })
-    D.boxInner = self:_draw("Square", { Thickness=1, Visible=false })
-    D.boxFill  = self:_draw("Square", { Filled=true, Visible=false })
-
-    -- box 3D (4 faces × 3 lignes)
-    D.box3d = {}
-    for i=1,4 do
-        D.box3d[i] = {
-            self:_draw("Line", { Thickness=1, Visible=false }),
-            self:_draw("Line", { Thickness=1, Visible=false }),
-            self:_draw("Line", { Thickness=1, Visible=false }),
-        }
-    end
-
-    -- health bar
-    D.hbarOL = self:_draw("Line", { Thickness=3, Visible=false })
-    D.hbar   = self:_draw("Line", { Thickness=1, Visible=false })
-    D.htext  = self:_draw("Text", { Center=true, Visible=false })
-
-    -- labels
-    D.name     = self:_draw("Text", { Center=true, Visible=false })
-    D.distance = self:_draw("Text", { Center=true, Visible=false })
-    D.weapon   = self:_draw("Text", { Center=true, Visible=false })
-
-    -- tracer
-    D.tracerOL = self:_draw("Line", { Thickness=3, Visible=false })
-    D.tracer   = self:_draw("Line", { Thickness=1, Visible=false })
-
-    -- arrow
-    D.arrowOL = self:_draw("Triangle", { Thickness=3, Visible=false })
-    D.arrow   = self:_draw("Triangle", { Filled=true, Visible=false })
-
-    -- skeleton (max 32 segments)
-    D.skelLines = {}
-    for i=1,32 do
-        D.skelLines[i] = self:_draw("Line", { Thickness=1, Visible=false })
-    end
-
-    self.D = D
-
-    -- nom display
     local entity = self.entity
     if typeof(entity) == "Instance" and entity:IsA("Player") then
-        D.name.Text = entity.DisplayName
+        self._displayName = entity.DisplayName
     elseif typeof(entity) == "Instance" then
-        D.name.Text = entity.Name
+        self._displayName = entity.Name
     end
 end
 
+-- returns an existing drawing or creates it on the spot
+function EspObject:_d(key, class, props)
+    local d = self.D[key]
+    if d then return d end
+    d = self:_draw(class, props)
+    self.D[key] = d
+    return d
+end
+
+function EspObject:_box3d(face)
+    local set = self.D["box3d" .. face]
+    if set then return set end
+    set = {
+        self:_draw("Line", { Thickness = 1, Visible = false }),
+        self:_draw("Line", { Thickness = 1, Visible = false }),
+        self:_draw("Line", { Thickness = 1, Visible = false }),
+    }
+    self.D["box3d" .. face] = set
+    return set
+end
+
+function EspObject:_skelLine(index)
+    local key = "skel" .. index
+    local line = self.D[key]
+    if line then return line end
+    line = self:_draw("Line", { Thickness = 1, Visible = false })
+    self.D[key] = line
+    self._skelCount = math.max(self._skelCount or 0, index)
+    return line
+end
+
 function EspObject:Destruct()
-    if self._conn then self._conn:Disconnect() end
+    if self.lib and self.lib._objects then self.lib._objects[self] = nil end
     for _, d in ipairs(self.bin) do d:Remove() end
     clear(self)
 end
 
-function EspObject:Update()
+function EspObject:Update(slow)
     local lib    = self.lib
     local entity = self.entity
-    local cfg    = getConfig(lib, entity)
 
-    -- whitelist check
-    if #lib.whitelist > 0 then
-        local uid = typeof(entity)=="Instance" and entity:IsA("Player") and entity.UserId
-        if uid then
-            local found = false
-            for _, id in ipairs(lib.whitelist) do if id==uid then found=true break end end
-            if not found then self._enabled=false self._onScreen=false return end
+    -- config, whitelist and character lookups run on the slow tick
+    if slow or self._cfg == nil then
+        local cfg = getConfig(lib, entity)
+
+        if #lib.whitelist > 0 then
+            local uid = typeof(entity) == "Instance" and entity:IsA("Player") and entity.UserId
+            if uid then
+                local found = false
+                for _, id in ipairs(lib.whitelist) do
+                    if id == uid then found = true break end
+                end
+                if not found then
+                    self._enabled = false
+                    self._onScreen = false
+                    self._cfg = cfg
+                    return
+                end
+            end
+        end
+
+        self._cfg = cfg
+        self._enabled = cfg.enabled
+        self._char = lib.getCharacter(entity)
+        self._head = self._char and self._char:FindFirstChild("Head") or nil
+        self._weapon = cfg.weapon and lib.getWeapon(entity) or nil
+
+        if cfg.skeleton and not self._skelSeq and self._char then
+            self._skelSeq = getSkeletonSequence(self._char)
         end
     end
 
-    self._cfg     = cfg
-    self._enabled = cfg.enabled
-
-    local char = lib.getCharacter(entity)
-    self._char = char
-
-    local head = char and char:FindFirstChild("Head")
-    if not head then
+    local cfg = self._cfg
+    if not cfg or not self._enabled then
         self._onScreen = false
-        self._corners  = nil
-        self._parts    = {}
         return
     end
 
-    local _, onScreen, depth = worldToScreen(head.Position)
+    local head = self._head
+    if not head or head.Parent == nil then
+        -- the character changed, pick it up now rather than waiting
+        self._char = lib.getCharacter(entity)
+        self._head = self._char and self._char:FindFirstChild("Head") or nil
+        head = self._head
+        self._skelCache = {}
+        self._childCount = nil
+    end
 
+    if not head then
+        self._onScreen = false
+        self._corners = nil
+        self._parts = {}
+        return
+    end
+
+    local headPos = head.Position
+    local screenPos, onScreen, depth = worldToScreen(headPos)
+
+    -- cull by distance before any bounding box work
     if depth > cfg.maxDistance then
         self._onScreen = false
         return
     end
 
     self._onScreen = onScreen
-    self._depth    = depth
-    self._screenPos = worldToScreen(head.Position)
+    self._depth = depth
+    self._screenPos = screenPos
 
     if onScreen then
-        -- refresh parts cache
-        local children = char:GetChildren()
-        if #children ~= self._childCount then
-            self._childCount = #children
-            self._parts = getBBoxParts(char)
+        -- the parts cache only needs rebuilding when the character changes
+        if slow or self._childCount == nil then
+            local children = self._char:GetChildren()
+            if #children ~= self._childCount then
+                self._childCount = #children
+                self._parts = getBBoxParts(self._char)
+            end
         end
 
-        if #self._parts > 0 then
+        if self._parts and #self._parts > 0 then
             local cf, sz = computeBBox(self._parts)
             self._corners = calcCorners(cf, sz)
+        else
+            self._corners = nil
         end
 
-        -- health
-        self._health, self._maxHealth = lib.getHealth(entity)
-
-        -- weapon
-        self._weapon = lib.getWeapon(entity)
-
-        -- skeleton sequence cache
-        if cfg.skeleton and not self._skelSeq then
-            self._skelSeq = getSkeletonSequence(char)
+        if cfg.healthBar or cfg.healthText then
+            self._health, self._maxHealth = lib.getHealth(entity)
         end
 
     elseif cfg.offScreenArrow then
-        local cf   = Camera.CFrame
+        local cf = Camera.CFrame
         local flat = CFrame.fromMatrix(cf.Position, cf.RightVector, Vector3.yAxis)
-        local obj  = flat:PointToObjectSpace(head.Position)
-        self._direction = Vector2.new(obj.X, obj.Z).Unit
+        local obj = flat:PointToObjectSpace(headPos)
+        local flatDir = Vector2.new(obj.X, obj.Z)
+        self._direction = flatDir.Magnitude > 0 and flatDir.Unit or nil
     end
 end
 
 function EspObject:Render()
-    local lib     = self.lib
-    local D       = self.D
-    local cfg     = self._cfg
-    local enabled = self._enabled and self._char ~= nil
-    local onScreen= self._onScreen or false
-    local corners = self._corners
-    local entity  = self.entity
-    local vp      = Camera.ViewportSize
+    local lib      = self.lib
+    local D        = self.D
+    local cfg      = self._cfg
+    local enabled  = self._enabled and self._char ~= nil
+    local onScreen = self._onScreen or false
+    local corners  = self._corners
+    local entity   = self.entity
+    local vp       = Camera.ViewportSize
 
-    local function hide(d) d.Visible = false end
-    local function col(pair, isOL) return resolveColor(lib, entity, pair, isOL) end
-
-    -- callbacks
-    if cfg and cfg.BeforeUpdate then pcall(cfg.BeforeUpdate, self) end
+    if cfg and cfg.BeforeUpdate then cfg.BeforeUpdate(self) end
 
     if not cfg or not enabled then
-        for _, d in ipairs(self.bin) do d.Visible = false end
+        if self._anyVisible then
+            for _, d in ipairs(self.bin) do d.Visible = false end
+            self._anyVisible = false
+        end
         return
     end
+    self._anyVisible = true
+
+    local hasBox = onScreen and corners ~= nil
 
     -- ── BOX 2D ──
-    local boxVis = onScreen and cfg.box and corners ~= nil
-    D.box.Visible      = boxVis
-    D.boxOuter.Visible = boxVis and cfg.boxOutline
-    D.boxInner.Visible = boxVis and cfg.boxOutline
-    D.boxFill.Visible  = onScreen and cfg.boxFill and corners ~= nil
-
-    if boxVis then
+    if cfg.box and hasBox then
         local tl = corners.topLeft
         local br = corners.bottomRight
         local sz = br - tl
-        local c, t = col(cfg.boxColor)
-        local oc, ot = col(cfg.boxOutlineColor, true)
+        local c, t = resolveColor(lib, entity, cfg.boxColor)
 
-        D.box.Position=tl D.box.Size=sz D.box.Color=c D.box.Transparency=t
-        D.boxOuter.Position=tl-Vector2.new(1,1) D.boxOuter.Size=sz+Vector2.new(2,2)
-        D.boxOuter.Color=oc D.boxOuter.Transparency=ot D.boxOuter.Thickness=1
-        D.boxInner.Position=tl+Vector2.new(1,1) D.boxInner.Size=sz-Vector2.new(2,2)
-        D.boxInner.Color=oc D.boxInner.Transparency=ot D.boxInner.Thickness=1
+        local box = self:_d("box", "Square", { Thickness = 1 })
+        box.Visible = true
+        box.Position = tl
+        box.Size = sz
+        box.Color = c
+        box.Transparency = t
+
+        if cfg.boxOutline then
+            local oc, ot = resolveColor(lib, entity, cfg.boxOutlineColor, true)
+            local outer = self:_d("boxOuter", "Square", { Thickness = 1 })
+            outer.Visible = true
+            outer.Position = tl - ONE
+            outer.Size = sz + TWO
+            outer.Color = oc
+            outer.Transparency = ot
+
+            local inner = self:_d("boxInner", "Square", { Thickness = 1 })
+            inner.Visible = true
+            inner.Position = tl + ONE
+            inner.Size = sz - TWO
+            inner.Color = oc
+            inner.Transparency = ot
+        else
+            if D.boxOuter then D.boxOuter.Visible = false end
+            if D.boxInner then D.boxInner.Visible = false end
+        end
+    else
+        if D.box then D.box.Visible = false end
+        if D.boxOuter then D.boxOuter.Visible = false end
+        if D.boxInner then D.boxInner.Visible = false end
     end
 
-    if D.boxFill.Visible and corners then
-        local c, t = col(cfg.boxFillColor)
-        D.boxFill.Position=corners.topLeft
-        D.boxFill.Size=corners.bottomRight-corners.topLeft
-        D.boxFill.Color=c D.boxFill.Transparency=t
+    if cfg.boxFill and hasBox then
+        local c, t = resolveColor(lib, entity, cfg.boxFillColor)
+        local fill = self:_d("boxFill", "Square", { Filled = true })
+        fill.Visible = true
+        fill.Position = corners.topLeft
+        fill.Size = corners.bottomRight - corners.topLeft
+        fill.Color = c
+        fill.Transparency = t
+    elseif D.boxFill then
+        D.boxFill.Visible = false
     end
 
     -- ── BOX 3D ──
-    local b3vis = onScreen and cfg.box3d and corners ~= nil
-    for i=1,4 do
-        for j=1,3 do D.box3d[i][j].Visible=b3vis end
-    end
-    if b3vis then
-        local c, t = col(cfg.box3dColor)
-        for i=1,4 do
-            local ni = (i%4)+1
-            local f  = D.box3d[i]
-            f[1].From=corners.corners[i]    f[1].To=corners.corners[ni]
-            f[2].From=corners.corners[ni]   f[2].To=corners.corners[ni+4]
-            f[3].From=corners.corners[ni+4] f[3].To=corners.corners[i+4]
-            for j=1,3 do f[j].Color=c f[j].Transparency=t end
+    if cfg.box3d and hasBox then
+        local c, t = resolveColor(lib, entity, cfg.box3dColor)
+        local pts = corners.corners
+        for i = 1, 4 do
+            local ni = (i % 4) + 1
+            local f = self:_box3d(i)
+            f[1].From, f[1].To = pts[i], pts[ni]
+            f[2].From, f[2].To = pts[ni], pts[ni + 4]
+            f[3].From, f[3].To = pts[ni + 4], pts[i + 4]
+            for j = 1, 3 do
+                f[j].Visible = true
+                f[j].Color = c
+                f[j].Transparency = t
+            end
+        end
+    else
+        for i = 1, 4 do
+            local f = D["box3d" .. i]
+            if f then
+                for j = 1, 3 do f[j].Visible = false end
+            end
         end
     end
 
     -- ── HEALTH BAR ──
-    local hvis = onScreen and cfg.healthBar and corners and self._health and self._maxHealth
-    D.hbar.Visible   = hvis ~= nil and hvis ~= false
-    D.hbarOL.Visible = D.hbar.Visible and cfg.healthBarOutline
-    D.htext.Visible  = onScreen and cfg.healthText and hvis ~= nil and hvis ~= false
-
-    if D.hbar.Visible then
-        local hp, mhp = self._health, self._maxHealth
-        local ratio   = clamp(hp/mhp, 0, 1)
-        local tl      = corners.topLeft
-        local bl      = corners.bottomLeft
+    local hvis = cfg.healthBar and hasBox and self._health and self._maxHealth and self._maxHealth > 0
+    if hvis then
+        local ratio = clamp(self._health / self._maxHealth, 0, 1)
+        local tl = corners.topLeft
+        local bl = corners.bottomLeft
         local barFrom = tl - HBAR_OFFSET
-        local barTo   = bl - HBAR_OFFSET
+        local barTo = bl - HBAR_OFFSET
+        local curPos = Vector2.new(barFrom.X, barFrom.Y + (barTo.Y - barFrom.Y) * (1 - ratio))
 
-        D.hbar.From  = Vector2.new(barFrom.X, barFrom.Y + (barTo.Y-barFrom.Y)*(1-ratio))
-        D.hbar.To    = barTo
-        D.hbar.Color = lerpColor(cfg.dyingColor, cfg.healthyColor, ratio)
+        local bar = self:_d("hbar", "Line", { Thickness = 1 })
+        bar.Visible = true
+        bar.From = curPos
+        bar.To = barTo
+        bar.Color = lerpColor(cfg.dyingColor, cfg.healthyColor, ratio)
 
-        local oc, ot = col(cfg.healthBarOutlineColor, true)
-        D.hbarOL.From  = barFrom - HBAR_OL_OFFSET
-        D.hbarOL.To    = barTo   + HBAR_OL_OFFSET
-        D.hbarOL.Color = oc D.hbarOL.Transparency = ot
-
-        if D.htext.Visible then
-            D.htext.Text = round(hp).."hp"
-            D.htext.Size = lib.sharedSettings.textSize
-            D.htext.Font = lib.sharedSettings.textFont
-            local hc, ht = col(cfg.healthTextColor)
-            D.htext.Color = hc D.htext.Transparency = ht
-            D.htext.Outline = cfg.healthTextOutline
-            D.htext.OutlineColor = cfg.healthTextOutlineColor
-            local curPos = Vector2.new(barFrom.X, barFrom.Y + (barTo.Y-barFrom.Y)*(1-ratio))
-            D.htext.Position = curPos - Vector2.new(
-                D.htext.TextBounds.X*0.5 + HBAR_OFFSET.X + 6,
-                D.htext.TextBounds.Y*0.5
-            )
+        if cfg.healthBarOutline then
+            local oc, ot = resolveColor(lib, entity, cfg.healthBarOutlineColor, true)
+            local ol = self:_d("hbarOL", "Line", { Thickness = 3 })
+            ol.Visible = true
+            ol.From = barFrom - HBAR_OL_OFFSET
+            ol.To = barTo + HBAR_OL_OFFSET
+            ol.Color = oc
+            ol.Transparency = ot
+        elseif D.hbarOL then
+            D.hbarOL.Visible = false
         end
+
+        if cfg.healthText then
+            local text = self:_d("htext", "Text", { Center = true })
+            local hc, ht = resolveColor(lib, entity, cfg.healthTextColor)
+            text.Visible = true
+            text.Text = round(self._health) .. "hp"
+            text.Size = lib.sharedSettings.textSize
+            text.Font = lib.sharedSettings.textFont
+            text.Color = hc
+            text.Transparency = ht
+            text.Outline = cfg.healthTextOutline
+            text.OutlineColor = cfg.healthTextOutlineColor
+            text.Position = curPos - Vector2.new(
+                text.TextBounds.X * 0.5 + HBAR_OFFSET.X + 6,
+                text.TextBounds.Y * 0.5)
+        elseif D.htext then
+            D.htext.Visible = false
+        end
+    else
+        if D.hbar then D.hbar.Visible = false end
+        if D.hbarOL then D.hbarOL.Visible = false end
+        if D.htext then D.htext.Visible = false end
     end
 
     -- ── NAME ──
-    D.name.Visible = onScreen and cfg.name and corners ~= nil
-    if D.name.Visible then
-        local nc, nt = col(cfg.nameColor)
-        D.name.Size = lib.sharedSettings.textSize
-        D.name.Font = lib.sharedSettings.textFont
-        D.name.Color = nc D.name.Transparency = nt
-        D.name.Outline = cfg.nameOutline
-        D.name.OutlineColor = cfg.nameOutlineColor
-        D.name.Center = false
-        local topCenter = (corners.topLeft + corners.topRight)*0.5
-        D.name.Position = Vector2.new(
-            topCenter.X - D.name.TextBounds.X*0.5,
-            corners.topLeft.Y - D.name.TextBounds.Y - NAME_OFFSET.Y
-        )
+    if cfg.name and hasBox then
+        local name = self:_d("name", "Text", { Center = false })
+        local nc, nt = resolveColor(lib, entity, cfg.nameColor)
+        name.Visible = true
+        name.Text = self._displayName or ""
+        name.Size = lib.sharedSettings.textSize
+        name.Font = lib.sharedSettings.textFont
+        name.Color = nc
+        name.Transparency = nt
+        name.Outline = cfg.nameOutline
+        name.OutlineColor = cfg.nameOutlineColor
+        local topCenter = (corners.topLeft + corners.topRight) * 0.5
+        name.Position = Vector2.new(
+            topCenter.X - name.TextBounds.X * 0.5,
+            corners.topLeft.Y - name.TextBounds.Y - NAME_OFFSET.Y)
+    elseif D.name then
+        D.name.Visible = false
     end
 
     -- ── DISTANCE ──
-    D.distance.Visible = onScreen and cfg.distance and corners ~= nil and self._depth ~= nil
-    if D.distance.Visible then
-        local dc, dt = col(cfg.distanceColor)
-        D.distance.Text = round(self._depth).." studs"
-        D.distance.Size = lib.sharedSettings.textSize
-        D.distance.Font = lib.sharedSettings.textFont
-        D.distance.Color = dc D.distance.Transparency = dt
-        D.distance.Outline = cfg.distanceOutline
-        D.distance.OutlineColor = cfg.distanceOutlineColor
-        D.distance.Position = (corners.bottomLeft+corners.bottomRight)*0.5 + DIST_OFFSET
+    local distanceShown = false
+    if cfg.distance and hasBox and self._depth then
+        local dist = self:_d("distance", "Text", { Center = true })
+        local dc, dt = resolveColor(lib, entity, cfg.distanceColor)
+        dist.Visible = true
+        distanceShown = true
+        dist.Text = round(self._depth) .. " studs"
+        dist.Size = lib.sharedSettings.textSize
+        dist.Font = lib.sharedSettings.textFont
+        dist.Color = dc
+        dist.Transparency = dt
+        dist.Outline = cfg.distanceOutline
+        dist.OutlineColor = cfg.distanceOutlineColor
+        dist.Position = (corners.bottomLeft + corners.bottomRight) * 0.5 + DIST_OFFSET
+    elseif D.distance then
+        D.distance.Visible = false
     end
 
     -- ── WEAPON ──
-    D.weapon.Visible = onScreen and cfg.weapon and corners ~= nil and self._weapon ~= nil
-    if D.weapon.Visible then
-        local wc, wt = col(cfg.weaponColor)
-        D.weapon.Text = self._weapon
-        D.weapon.Size = lib.sharedSettings.textSize
-        D.weapon.Font = lib.sharedSettings.textFont
-        D.weapon.Color = wc D.weapon.Transparency = wt
-        D.weapon.Outline = cfg.weaponOutline
-        D.weapon.OutlineColor = cfg.weaponOutlineColor
-        local base = (corners.bottomLeft+corners.bottomRight)*0.5
-        D.weapon.Position = base + (D.distance.Visible
+    if cfg.weapon and hasBox and self._weapon then
+        local weapon = self:_d("weapon", "Text", { Center = true })
+        local wc, wt = resolveColor(lib, entity, cfg.weaponColor)
+        weapon.Visible = true
+        weapon.Text = self._weapon
+        weapon.Size = lib.sharedSettings.textSize
+        weapon.Font = lib.sharedSettings.textFont
+        weapon.Color = wc
+        weapon.Transparency = wt
+        weapon.Outline = cfg.weaponOutline
+        weapon.OutlineColor = cfg.weaponOutlineColor
+        local base = (corners.bottomLeft + corners.bottomRight) * 0.5
+        weapon.Position = base + (distanceShown
             and DIST_OFFSET + Vector2.new(0, D.distance.TextBounds.Y)
-            or  Vector2.zero)
+            or Vector2.zero)
+    elseif D.weapon then
+        D.weapon.Visible = false
     end
 
     -- ── TRACER ──
-    D.tracer.Visible   = onScreen and cfg.tracer and corners ~= nil
-    D.tracerOL.Visible = D.tracer.Visible and cfg.tracerOutline
-    if D.tracer.Visible then
-        local tc, tt   = col(cfg.tracerColor)
-        local oc, ot   = col(cfg.tracerOutlineColor, true)
+    if cfg.tracer and hasBox then
+        local tc, tt = resolveColor(lib, entity, cfg.tracerColor)
         local origin
         local o = cfg.tracerOrigin
         if o == "Middle" then
@@ -771,63 +855,93 @@ function EspObject:Render()
         else
             origin = vp * Vector2.new(0.5, 1)
         end
-        local target = (corners.bottomLeft+corners.bottomRight)*0.5
-        D.tracer.From=origin D.tracer.To=target D.tracer.Color=tc D.tracer.Transparency=tt
-        D.tracerOL.From=origin D.tracerOL.To=target D.tracerOL.Color=oc D.tracerOL.Transparency=ot
+        local target = (corners.bottomLeft + corners.bottomRight) * 0.5
+
+        local tracer = self:_d("tracer", "Line", { Thickness = 1 })
+        tracer.Visible = true
+        tracer.From = origin
+        tracer.To = target
+        tracer.Color = tc
+        tracer.Transparency = tt
+
+        if cfg.tracerOutline then
+            local oc, ot = resolveColor(lib, entity, cfg.tracerOutlineColor, true)
+            local ol = self:_d("tracerOL", "Line", { Thickness = 3 })
+            ol.Visible = true
+            ol.From = origin
+            ol.To = target
+            ol.Color = oc
+            ol.Transparency = ot
+        elseif D.tracerOL then
+            D.tracerOL.Visible = false
+        end
+    else
+        if D.tracer then D.tracer.Visible = false end
+        if D.tracerOL then D.tracerOL.Visible = false end
     end
 
-    -- ── ARROW ──
-    D.arrow.Visible   = not onScreen and enabled and cfg.offScreenArrow
-    D.arrowOL.Visible = D.arrow.Visible and cfg.offScreenArrowOutline
-    if D.arrow.Visible and self._direction then
+    -- ── OFF SCREEN ARROW ──
+    if cfg.offScreenArrow and not onScreen and self._direction then
         local dir = self._direction
-        local r   = cfg.offScreenArrowRadius
-        local sz2 = cfg.offScreenArrowSize
         local ctr = vp * 0.5
-        local raw = ctr + dir*r
+        local raw = ctr + dir * cfg.offScreenArrowRadius
         local pos = Vector2.new(
-            clamp(raw.X, 25, vp.X-25),
-            clamp(raw.Y, 25, vp.Y-25)
-        )
-        local ac, at = col(cfg.offScreenArrowColor)
-        local oc, ot = col(cfg.offScreenArrowOutlineColor, true)
-        D.arrow.PointA=pos
-        D.arrow.PointB=pos - rotateVec(dir, 0.45)*sz2
-        D.arrow.PointC=pos - rotateVec(dir,-0.45)*sz2
-        D.arrow.Color=ac D.arrow.Transparency=at
-        D.arrowOL.PointA=D.arrow.PointA D.arrowOL.PointB=D.arrow.PointB D.arrowOL.PointC=D.arrow.PointC
-        D.arrowOL.Color=oc D.arrowOL.Transparency=ot
+            clamp(raw.X, 25, vp.X - 25),
+            clamp(raw.Y, 25, vp.Y - 25))
+        local size = cfg.offScreenArrowSize
+        local a = pos
+        local b = pos - rotateVec(dir, 0.45) * size
+        local c = pos - rotateVec(dir, -0.45) * size
+
+        local ac, at = resolveColor(lib, entity, cfg.offScreenArrowColor)
+        local arrow = self:_d("arrow", "Triangle", { Filled = true })
+        arrow.Visible = true
+        arrow.PointA, arrow.PointB, arrow.PointC = a, b, c
+        arrow.Color = ac
+        arrow.Transparency = at
+
+        if cfg.offScreenArrowOutline then
+            local oc, ot = resolveColor(lib, entity, cfg.offScreenArrowOutlineColor, true)
+            local ol = self:_d("arrowOL", "Triangle", { Thickness = 3 })
+            ol.Visible = true
+            ol.PointA, ol.PointB, ol.PointC = a, b, c
+            ol.Color = oc
+            ol.Transparency = ot
+        elseif D.arrowOL then
+            D.arrowOL.Visible = false
+        end
+    else
+        if D.arrow then D.arrow.Visible = false end
+        if D.arrowOL then D.arrowOL.Visible = false end
     end
 
     -- ── SKELETON ──
-    local skelVis = onScreen and cfg.skeleton and self._skelSeq and self._char
-    if skelVis then
-        local seq   = self._skelSeq
+    local lineIdx = 0
+    if cfg.skeleton and onScreen and self._skelSeq and self._char then
+        local seq = self._skelSeq
         local cache = self._skelCache
-        local sc, st = col(cfg.skeletonColor)
-        local lineIdx = 0
+        local sc, st = resolveColor(lib, entity, cfg.skeletonColor)
         local prevPos = nil
 
-        for _, name in ipairs(seq) do
+        for i = 1, #seq do
+            local name = seq[i]
             local part = cache[name]
-            if not part then
+            if part == nil or part.Parent == nil then
                 part = self._char:FindFirstChild(name)
-                cache[name] = part
+                cache[name] = part or false
             end
-            if part and part:IsA("BasePart") then
+            if part and part ~= false then
                 local spos, vis = worldToScreen(part.Position)
                 if vis then
                     if prevPos then
                         lineIdx = lineIdx + 1
-                        if lineIdx <= #D.skelLines then
-                            local l = D.skelLines[lineIdx]
-                            l.Visible    = true
-                            l.From       = prevPos
-                            l.To         = spos
-                            l.Color      = sc
-                            l.Transparency = st
-                            l.Thickness  = cfg.skeletonThickness
-                        end
+                        local l = self:_skelLine(lineIdx)
+                        l.Visible = true
+                        l.From = prevPos
+                        l.To = spos
+                        l.Color = sc
+                        l.Transparency = st
+                        l.Thickness = cfg.skeletonThickness
                     end
                     prevPos = spos
                 else
@@ -837,17 +951,14 @@ function EspObject:Render()
                 prevPos = nil
             end
         end
-
-        -- hide unused lines
-        for i = lineIdx+1, #D.skelLines do
-            D.skelLines[i].Visible = false
-        end
-    else
-        for _, l in ipairs(D.skelLines) do l.Visible = false end
     end
 
-    -- callbacks
-    if cfg.AfterUpdate then pcall(cfg.AfterUpdate, self) end
+    for i = lineIdx + 1, (self._skelCount or 0) do
+        local l = D["skel" .. i]
+        if l then l.Visible = false end
+    end
+
+    if cfg.AfterUpdate then cfg.AfterUpdate(self) end
 end
 
 -- ─── CHAM OBJECT ─────────────────────────────────────────────────────────────
@@ -860,36 +971,44 @@ function ChamObject.new(entity, lib)
     self.entity    = entity
     self.lib       = lib
     self.highlight = Instance.new("Highlight", HighlightContainer)
-    self._conn = RunService.Heartbeat:Connect(function() self:Update() end)
+    lib._objects[self] = true
     return self
 end
 
 function ChamObject:Destruct()
-    self._conn:Disconnect()
+    if self.lib and self.lib._objects then self.lib._objects[self] = nil end
     self.highlight:Destroy()
     clear(self)
 end
 
-function ChamObject:Update()
+function ChamObject:Update(slow)
+    if not slow and self._primed then return end
+    self._primed = true
+
     local lib  = self.lib
     local hl   = self.highlight
     local cfg  = getConfig(lib, self.entity)
     local char = lib.getCharacter(self.entity)
 
-    hl.Enabled = cfg.enabled and cfg.chams and char ~= nil
-    if not hl.Enabled then return end
+    local enabled = cfg.enabled and cfg.chams and char ~= nil
+    if hl.Enabled ~= enabled then hl.Enabled = enabled end
+    if not enabled then return end
+
+    if hl.Adornee ~= char then hl.Adornee = char end
 
     local fc, ft = resolveColor(lib, self.entity, cfg.chamsFillColor)
     local oc, ot = resolveColor(lib, self.entity, cfg.chamsOutlineColor, true)
 
-    hl.Adornee            = char
-    hl.FillColor          = fc
-    hl.FillTransparency   = ft or 0.5
-    hl.OutlineColor       = oc
-    hl.OutlineTransparency= ot or 0
-    hl.DepthMode          = cfg.chamsVisibleOnly
+    -- writing a Highlight property is replicated work, only do it on change
+    if hl.FillColor ~= fc then hl.FillColor = fc end
+    if hl.FillTransparency ~= (ft or 0.5) then hl.FillTransparency = ft or 0.5 end
+    if hl.OutlineColor ~= oc then hl.OutlineColor = oc end
+    if hl.OutlineTransparency ~= (ot or 0) then hl.OutlineTransparency = ot or 0 end
+
+    local depth = cfg.chamsVisibleOnly
         and Enum.HighlightDepthMode.Occluded
-        or  Enum.HighlightDepthMode.AlwaysOnTop
+        or Enum.HighlightDepthMode.AlwaysOnTop
+    if hl.DepthMode ~= depth then hl.DepthMode = depth end
 end
 
 -- ─── INSTANCE OBJECT (NPC / Part / Model) ────────────────────────────────────
@@ -903,7 +1022,7 @@ function InstanceObject.new(instance, lib, options)
     self.lib       = lib
     self.options   = options or {}
     self.bin       = {}
-    self._conn = RunService.Heartbeat:Connect(function() self:Render() end)
+    lib._objects[self] = true
 
     -- crée un EspObject complet si c'est un Model avec des parts
     if instance:IsA("Model") then
@@ -920,7 +1039,7 @@ function InstanceObject.new(instance, lib, options)
 end
 
 function InstanceObject:Destruct()
-    self._conn:Disconnect()
+    if self.lib and self.lib._objects then self.lib._objects[self] = nil end
     if self._esp then self._esp:Destruct() end
     for _, d in ipairs(self.bin) do d:Remove() end
     clear(self)
@@ -996,7 +1115,7 @@ end
 
 -- Charge l'ESP pour tous les joueurs
 function Lib:Load()
-    assert(not self._loaded, "EspFusion: déjà chargé")
+    assert(not self._loaded, "EspFusion: deja charge")
 
     local function add(player)
         if player == LocalPlayer then return end
@@ -1013,25 +1132,45 @@ function Lib:Load()
         self._cache[player] = nil
     end
 
-    for _, p in ipairs(Players:GetPlayers()) do add(p) end -- fix : index 1, pas 2
+    for _, p in ipairs(Players:GetPlayers()) do add(p) end
 
     self._connections[1] = Players.PlayerAdded:Connect(add)
     self._connections[2] = Players.PlayerRemoving:Connect(remove)
 
-    -- rainbow
+    -- one loop drives every object, instead of one connection per entity
+    local slowAccum = 0
+    local rainbowAccum = 0
+
     self._connections[3] = RunService.RenderStepped:Connect(function(dt)
-        local s = self.sharedSettings
-        if not s.rainbow then return end
-        local rb = self._rainbow
-        rb.step = (rb.step or 0) + dt
-        if rb.step >= 1/60 then
-            rb.step = 0
-            rb.hue  = (rb.hue + 1/s.rainbowSpeed) % 1
-            rb.color = Color3.fromHSV(rb.hue, 0.8, 1)
+        local shared = self.sharedSettings
+
+        -- rainbow colour advances on its own clock
+        if shared.rainbow then
+            rainbowAccum = rainbowAccum + dt
+            if rainbowAccum >= 1 / 60 then
+                rainbowAccum = 0
+                local rb = self._rainbow
+                rb.hue = (rb.hue + 1 / shared.rainbowSpeed) % 1
+                rb.color = Color3.fromHSV(rb.hue, 0.8, 1)
+            end
+        end
+
+        -- data that does not move every frame runs at 10 Hz
+        slowAccum = slowAccum + dt
+        local slow = slowAccum >= (shared.slowInterval or 0.1)
+        if slow then slowAccum = 0 end
+
+        for object in pairs(self._objects) do
+            local ok, err = pcall(function()
+                if object.Update then object:Update(slow) end
+                if object.Render then object:Render() end
+            end)
+            if not ok and shared.debug then
+                warn("EspFusion: " .. tostring(err))
+            end
         end
     end)
 
-    -- camera update
     self._connections[4] = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
         Camera = workspace.CurrentCamera
     end)
@@ -1053,10 +1192,13 @@ function Lib:Unload()
     end
     clear(self._connections)
 
-    HighlightContainer:Destroy()
+    for _, child in ipairs(HighlightContainer:GetChildren()) do
+        child:Destroy()
+    end
+
+    clear(self._objects)
 
     self._loaded = false
-    getgenv().EspFusion = nil
 end
 
 -- ─── SINGLETON ───────────────────────────────────────────────────────────────
