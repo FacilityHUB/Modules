@@ -323,6 +323,16 @@ local Lib = {
     sharedSettings = {
         slowInterval  = 0.1,
         debug         = false,
+
+        -- "Team"      : compare Player.Team          (defaut)
+        -- "TeamColor" : compare Player.TeamColor     (jeux sans objets Team)
+        -- "Off"       : tout le monde est ennemi
+        teamCheck     = "Team",
+
+        -- "filter"    : seuls les joueurs whitelistes sont dessines
+        -- "highlight" : tout le monde est dessine, les whitelistes
+        --               utilisent la team "whitelist"
+        whitelistMode = "highlight",
         textSize      = 13,
         textFont      = 2,
         useTeamColor  = false,
@@ -337,6 +347,17 @@ local Lib = {
         enemy   = (function()
             local t = defaultTeamConfig()
             t.boxColor = { Color3.fromRGB(255,60,60), 1 }
+            return t
+        end)(),
+        whitelist = (function()
+            local t = defaultTeamConfig()
+            t.boxColor     = { Color3.fromRGB(255, 215, 0), 1 }
+            t.nameColor    = { Color3.fromRGB(255, 215, 0), 1 }
+            t.chams        = true
+            t.chamsFillColor = { Color3.fromRGB(255, 215, 0), 0.6 }
+            t.chamsOutlineColor = { Color3.fromRGB(255, 215, 0), 0 }
+            t.tracer       = true
+            t.tracerColor  = { Color3.fromRGB(255, 215, 0), 1 }
             return t
         end)(),
         friendly = (function()
@@ -390,8 +411,41 @@ end
 
 -- true = on n'affiche pas d'ESP sur cette entité
 function Lib.isFriendly(entity)
-    if typeof(entity) == "Instance" and entity:IsA("Player") then
+    if typeof(entity) ~= "Instance" or not entity:IsA("Player") then
+        return false
+    end
+
+    local mode = Lib.sharedSettings.teamCheck
+
+    if mode == "Off" then
+        return false
+
+    elseif mode == "TeamColor" then
+        -- games that set TeamColor without creating Team objects
+        local mine = LocalPlayer.TeamColor
+        local theirs = entity.TeamColor
+        return mine ~= nil and theirs ~= nil and mine == theirs
+
+    end
+
+    -- default: compare the Team object, falling back on TeamColor when
+    -- neither player has one so the check still means something
+    if entity.Team ~= nil or LocalPlayer.Team ~= nil then
         return entity.Team ~= nil and entity.Team == LocalPlayer.Team
+    end
+    return entity.TeamColor == LocalPlayer.TeamColor
+end
+
+-- true when the entity is listed in Lib.whitelist
+function Lib.isWhitelisted(entity)
+    local list = Lib.whitelist
+    if #list == 0 then return false end
+    if typeof(entity) ~= "Instance" or not entity:IsA("Player") then
+        return false
+    end
+    local uid = entity.UserId
+    for i = 1, #list do
+        if list[i] == uid then return true end
     end
     return false
 end
@@ -407,6 +461,9 @@ end
 
 -- Retourne la clé dans teamSettings pour cette entité
 function Lib.getTeamKey(entity)
+    if Lib.sharedSettings.whitelistMode == "highlight" and Lib.isWhitelisted(entity) then
+        return "whitelist"
+    end
     if Lib.isFriendly(entity) then return "friendly" end
     return "enemy"
 end
@@ -535,33 +592,53 @@ function EspObject:Update(slow)
     local entity = self.entity
 
     -- config, whitelist and character lookups run on the slow tick
+    -- an entity that no longer exists must not keep drawing
+    if typeof(entity) == "Instance" then
+        local alive = entity:IsA("Player") and entity.Parent ~= nil
+            or (not entity:IsA("Player") and entity.Parent ~= nil)
+        if not alive then
+            self._enabled = false
+            self._onScreen = false
+            self._dead = true
+            return
+        end
+    end
+
     if slow or self._cfg == nil then
         local cfg = getConfig(lib, entity)
 
-        if #lib.whitelist > 0 then
-            local uid = typeof(entity) == "Instance" and entity:IsA("Player") and entity.UserId
-            if uid then
-                local found = false
-                for _, id in ipairs(lib.whitelist) do
-                    if id == uid then found = true break end
-                end
-                if not found then
-                    self._enabled = false
-                    self._onScreen = false
-                    self._cfg = cfg
-                    return
-                end
-            end
+        if lib.sharedSettings.whitelistMode == "filter"
+            and #lib.whitelist > 0
+            and not lib.isWhitelisted(entity) then
+            self._enabled = false
+            self._onScreen = false
+            self._cfg = cfg
+            return
         end
 
         self._cfg = cfg
         self._enabled = cfg.enabled
-        self._char = lib.getCharacter(entity)
-        self._head = self._char and self._char:FindFirstChild("Head") or nil
+
+        local char = lib.getCharacter(entity)
+        if char ~= self._char then
+            -- respawn: every cache built from the old character is stale,
+            -- and a new character often has the same child count so a
+            -- count based check would never notice
+            self._char = char
+            self._head = char and char:FindFirstChild("Head") or nil
+            self._parts = nil
+            self._childCount = nil
+            self._skelCache = {}
+            self._skelSeq = nil
+            self._corners = nil
+        else
+            self._head = char and char:FindFirstChild("Head") or nil
+        end
+
         self._weapon = cfg.weapon and lib.getWeapon(entity) or nil
 
-        if cfg.skeleton and not self._skelSeq and self._char then
-            self._skelSeq = getSkeletonSequence(self._char)
+        if cfg.skeleton and not self._skelSeq and char then
+            self._skelSeq = getSkeletonSequence(char)
         end
     end
 
@@ -573,11 +650,17 @@ function EspObject:Update(slow)
 
     local head = self._head
     if not head or head.Parent == nil then
-        -- the character changed, pick it up now rather than waiting
-        self._char = lib.getCharacter(entity)
-        self._head = self._char and self._char:FindFirstChild("Head") or nil
+        -- the character changed between two slow ticks, pick it up now
+        local char = lib.getCharacter(entity)
+        if char ~= self._char then
+            self._parts = nil
+            self._corners = nil
+            self._skelCache = {}
+            self._skelSeq = nil
+        end
+        self._char = char
+        self._head = char and char:FindFirstChild("Head") or nil
         head = self._head
-        self._skelCache = {}
         self._childCount = nil
     end
 
@@ -603,9 +686,9 @@ function EspObject:Update(slow)
 
     if onScreen then
         -- the parts cache only needs rebuilding when the character changes
-        if slow or self._childCount == nil then
+        if self._parts == nil or slow then
             local children = self._char:GetChildren()
-            if #children ~= self._childCount then
+            if self._parts == nil or #children ~= self._childCount then
                 self._childCount = #children
                 self._parts = getBBoxParts(self._char)
             end
@@ -985,6 +1068,13 @@ function ChamObject:Update(slow)
     if not slow and self._primed then return end
     self._primed = true
 
+    local entity = self.entity
+    if typeof(entity) == "Instance" and entity.Parent == nil then
+        self.highlight.Enabled = false
+        self._dead = true
+        return
+    end
+
     local lib  = self.lib
     local hl   = self.highlight
     local cfg  = getConfig(lib, self.entity)
@@ -1113,6 +1203,21 @@ function Lib:RemoveInstance(instance)
     self._cache[instance] = nil
 end
 
+-- Retire un objet dont l'entite n'existe plus
+function Lib:_release(object)
+    local entity = object.entity or object.instance
+    local objs = entity and self._cache[entity]
+
+    if objs then
+        for _, o in ipairs(objs) do
+            if o.Destruct then pcall(function() o:Destruct() end) end
+        end
+        self._cache[entity] = nil
+    elseif object.Destruct then
+        pcall(function() object:Destruct() end)
+    end
+end
+
 -- Charge l'ESP pour tous les joueurs
 function Lib:Load()
     assert(not self._loaded, "EspFusion: deja charge")
@@ -1165,8 +1270,12 @@ function Lib:Load()
                 if object.Update then object:Update(slow) end
                 if object.Render then object:Render() end
             end)
-            if not ok and shared.debug then
-                warn("EspFusion: " .. tostring(err))
+
+            if not ok then
+                if shared.debug then warn("EspFusion: " .. tostring(err)) end
+            elseif object._dead then
+                -- the entity is gone, hide and release it
+                self:_release(object)
             end
         end
     end)
