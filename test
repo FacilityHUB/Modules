@@ -1,3 +1,4 @@
+--
 --!nocheck
 --!nolint UnknownGlobal
 --[[
@@ -592,18 +593,6 @@ function EspObject:Update(slow)
     local entity = self.entity
 
     -- config, whitelist and character lookups run on the slow tick
-    -- an entity that no longer exists must not keep drawing
-    if typeof(entity) == "Instance" then
-        local alive = entity:IsA("Player") and entity.Parent ~= nil
-            or (not entity:IsA("Player") and entity.Parent ~= nil)
-        if not alive then
-            self._enabled = false
-            self._onScreen = false
-            self._dead = true
-            return
-        end
-    end
-
     if slow or self._cfg == nil then
         local cfg = getConfig(lib, entity)
 
@@ -1068,13 +1057,6 @@ function ChamObject:Update(slow)
     if not slow and self._primed then return end
     self._primed = true
 
-    local entity = self.entity
-    if typeof(entity) == "Instance" and entity.Parent == nil then
-        self.highlight.Enabled = false
-        self._dead = true
-        return
-    end
-
     local lib  = self.lib
     local hl   = self.highlight
     local cfg  = getConfig(lib, self.entity)
@@ -1206,6 +1188,17 @@ end
 -- Retire un objet dont l'entite n'existe plus
 function Lib:_release(object)
     local entity = object.entity or object.instance
+
+    -- hide first, Destruct removes the drawings but a frame can slip through
+    if object.bin then
+        for _, d in ipairs(object.bin) do
+            pcall(function() d.Visible = false end)
+        end
+    end
+    if object.highlight then
+        pcall(function() object.highlight.Enabled = false end)
+    end
+
     local objs = entity and self._cache[entity]
 
     if objs then
@@ -1266,16 +1259,20 @@ function Lib:Load()
         if slow then slowAccum = 0 end
 
         for object in pairs(self._objects) do
-            local ok, err = pcall(function()
-                if object.Update then object:Update(slow) end
-                if object.Render then object:Render() end
-            end)
+            -- liveness first, a gone entity must not reach Update or Render
+            local entity = object.entity or object.instance
+            local alive = typeof(entity) == "Instance" and entity.Parent ~= nil
 
-            if not ok then
-                if shared.debug then warn("EspFusion: " .. tostring(err)) end
-            elseif object._dead then
-                -- the entity is gone, hide and release it
+            if not alive then
                 self:_release(object)
+            else
+                local ok, err = pcall(function()
+                    if object.Update then object:Update(slow) end
+                    if object.Render then object:Render() end
+                end)
+                if not ok and shared.debug then
+                    warn("EspFusion: " .. tostring(err))
+                end
             end
         end
     end)
