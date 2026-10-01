@@ -1,0 +1,3015 @@
+-- ==========================================
+--    FACILITY HUB — War Tycoon v6.1.5.0c
+--    UI migrated to FacilityHUB/UI-Facility
+-- ==========================================
+
+local Players             = game:GetService("Players")
+local RunService          = game:GetService("RunService")
+local ReplicatedStorage   = game:GetService("ReplicatedStorage")
+local Workspace           = game:GetService("Workspace")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local UserInputService    = game:GetService("UserInputService")
+local TweenService        = game:GetService("TweenService")
+local CoreGui             = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+local Mouse       = LocalPlayer:GetMouse()
+local Camera      = Workspace.CurrentCamera
+
+-- ==========================================
+--    UI — NOUVELLE LIBRARY
+-- ==========================================
+local BASE = "https://raw.githubusercontent.com/FacilityHUB/UI-Facility/refs/heads/main/"
+
+local source = game:HttpGet(BASE .. "main.luau")
+assert(#source > 1000 and not string.find(source, "404", 1, true),
+    "main.luau introuvable a cette URL, verifie le depot et la branche")
+
+local chunk, err = loadstring(source)
+assert(chunk, "main.luau ne compile pas : " .. tostring(err))
+
+local Library = chunk()
+assert(type(Library) == "table", "main.luau n'a rien retourne, le fichier est incomplet ou tronque")
+
+Library.BaseUrl = BASE
+
+local SaveManager      = Library.SaveManager
+local InterfaceManager = Library.InterfaceManager
+local ThemeManager     = Library.ThemeManager
+
+assert(SaveManager and InterfaceManager and ThemeManager,
+    "addons introuvables, verifie Library.BaseUrl et le dossier addons/")
+
+-- ==========================================
+--    FENETRE
+-- ==========================================
+local Window = Library:Window({
+    Title      = "Facility",
+    Suffix     = ".app",
+    Width      = 720,
+    Height     = 640,
+    MinWidth   = 520,
+    MinHeight  = 340,
+    MobileButton = true,
+    TabStyle   = "side",
+    TabWidth   = 150,
+})
+
+local Tab, Sec, KB = {}, {}, {}
+
+Tab.Movement = Window:Tab("Movement",  "footprints")
+Tab.Aimbot   = Window:Tab("Aimbot",    "crosshair")
+Tab.ESP      = Window:Tab("ESP",       "eye")
+Tab.Hitbox   = Window:Tab("Hitbox",    "box")
+Window:TabDivider()
+Tab.AutoFarm = Window:Tab("Auto-Farm", "tractor")
+Tab.Webhook  = Window:Tab("Webhook",   "webhook")
+Window:TabDivider()
+Tab.Extra    = Window:Tab("Extra",     "zap")
+Tab.Keybinds = Window:Tab("Keybinds",  "keyboard")
+Tab.Misc     = Window:Tab("Misc",      "sliders")
+Window:TabDivider()
+Tab.Settings = Window:Tab({ Title = "Settings", Icon = "settings" })
+
+-- ==========================================
+--    CONSTANTS
+-- ==========================================
+local TELEPORT_DELAY           = 1
+local AUTO_BUY_COLORS          = {"Rebirth", "Vert", "Bleu"}
+local CHECK_CASH_TARGET        = true
+local DEPOSIT_FORWARD_DISTANCE = 25
+local DEPOSIT_LATERAL_OFFSETS  = {-20, 0, 20}
+
+local SafePostCFrame = CFrame.new(
+    -520.122864, 4737.34717, -1048.9873,
+     0.78801012, -0.522424102,  0.325750053,
+    -3.02216172e-08, 0.529105067, 0.84855634,
+    -0.615662277, -0.668671012,  0.416940153
+)
+
+local FALLBACK_CFRAMES_RAW = {
+    { 2495.8125,    66.9079285, -2979.03564, -0.906296611, 0, -0.422642082, 0, 1, 0,  0.422642082, 0, -0.906296611},
+    { 1817.60254,   67.5962067, -3864.30127, -0.707134247, 0, -0.707079291, 0, 1, 0,  0.707079291, 0, -0.707134247},
+    {  952.625122,  70.1863403, -4744.2959,  -0.965929747, 0,  0.258804798, 0, 1, 0, -0.258804798, 0, -0.965929747},
+    { -295.718353,  64.8110046, -4674.24805, -1.1920929e-07, 0, -1.00000012,  0, 1, 0,  1.00000012,  0, -1.1920929e-07},
+    {-3536.79907,   66.8422089, -1293.58313, -0.00214445591, 0.0309872832, -0.99951756, -0.016570745,  0.999381423, 0.0310186148,  0.999860525, 0.0166292638, -0.00162959099},
+    {-2774.36377,   64.8317108,  1424.31189,  0.819155693, 0,  0.573571265, 0, 1, 0, -0.573571265, 0,  0.819155693},
+    {-1307.45947,   64.8772583,  3532.27344,  0.422592998, 0,  0.906319618, 0, 1, 0, -0.906319618, 0,  0.422592998},
+    { -243.634003,  65.4129791,  3687.69849, -1.1920929e-07, 0,  1.00000012,  0, 1, 0, -1.00000012,  0, -1.1920929e-07},
+    {  784.833435,  65.7720947,  3264.00415, -0.939700961, 0,  0.341998369, 0, 1, 0, -0.341998369, 0, -0.939700961},
+    { 2395.33301,   66.2755508,  2737.90723, -0.866007447, 0,  0.500031412, 0, 1, 0, -0.500031412, 0, -0.866007447},
+    { 2738.28711,   66.057251,   1667.41492, -0.965929747, 0,  0.258804798, 0, 1, 0, -0.258804798, 0, -0.965929747},
+    { 3062.05298,   65.7877808,   469.554962,-0.984812617, 0,  0.173621148, 0, 1, 0, -0.173621148, 0, -0.984812617},
+    { 3131.61963,   65.2881012,  -638.15741, -1,           0,  0,           0, 1, 0,  0,           0, -1},
+}
+
+local FALLBACK_CFRAMES = {}
+for _, c in ipairs(FALLBACK_CFRAMES_RAW) do
+    table.insert(FALLBACK_CFRAMES, CFrame.new(
+        c[1],  c[2],  c[3],
+        c[4],  c[5],  c[6],
+        c[7],  c[8],  c[9],
+        c[10], c[11], c[12]
+    ))
+end
+
+-- ==========================================
+--    GLOBAL VARIABLES
+-- ==========================================
+getgenv().AutoFarmEnabled    = false
+getgenv().AutoBuyOnlyEnabled = false
+getgenv().AutoRebirthEnabled = false
+getgenv().CashTarget         = 1000000
+getgenv().SelectedCrateTypes = {"Air", "Land", "Naval"}
+getgenv().ModeRecupMonay     = "Crate"
+getgenv().CrateCycleCount    = 3
+getgenv().StatusUIEnabled    = true
+
+getgenv().WebhookEnabled  = false
+getgenv().WebhookURL      = ""
+getgenv().WebhookUserID   = ""
+getgenv().WebhookPingUser = false
+getgenv().WebhookData     = {"Stats", "Farm Activity"}
+getgenv().WebhookDelay    = 5
+
+getgenv().StartStats       = nil
+getgenv().StartTime        = os.time()
+getgenv().LastWebhookSend  = 0
+
+getgenv().FarmFlyAltitude     = 150
+getgenv().NoFallDamageApplied = false
+
+getgenv().FarmStats = {
+    cratesCollected = 0,
+    cratesSold      = 0,
+    cyclesCompleted = 0,
+    buttonsBought   = 0,
+}
+
+getgenv().CrateSellMode    = "Direct"
+getgenv().FarmMovementMode = "Fly"
+getgenv().FarmFlySpeed     = 300
+
+getgenv().UserNoclipEnabled = false
+getgenv().FlyEnabled        = false
+getgenv().FlySpeed          = 250
+getgenv().WalkSpeedEnabled  = false
+getgenv().WalkSpeedValue    = 80
+getgenv().JumpPowerEnabled  = false
+getgenv().JumpPowerValue    = 60
+
+getgenv().CarFlyEnabled    = false
+getgenv().CarFlySpeed      = 250
+getgenv().CarNoclipEnabled = false
+
+getgenv().AntiAFKEnabled   = true
+getgenv().AutoExecute      = false
+getgenv().RemoveLaser      = false
+getgenv().RemoveElectric   = false
+
+getgenv().ESPEnabled       = false
+getgenv().ESPBox           = true
+getgenv().ESPChams         = true
+getgenv().ESPName          = true
+getgenv().ESPDistance      = true
+getgenv().ESPTracer        = false
+getgenv().ESPMaxDistance   = 5000
+getgenv().ESPWhitelist     = {}
+getgenv().XRayEnabled      = false
+getgenv().FullbrightEnabled = false
+getgenv().NoFogEnabled     = false
+
+getgenv().FacilityTargeting = {
+    TeamCheck    = false,
+    WallCheck    = false,
+    AliveCheck   = true,
+    FovCheck     = true,
+    FovVisible   = true,
+    FovThickness = 0.6,
+    FovSize      = 100,
+    FovColor     = Color3.fromRGB(255, 255, 255),
+    LockColor    = Color3.fromRGB(255, 0, 0),
+    OffColor     = Color3.fromRGB(150, 150, 150),
+    SelectedPart = "Head",
+    MaxDistance  = 2000,
+}
+
+getgenv().FacilityAimbot = {
+    Enabled    = false,
+    ToggleMode = false,
+    AimKey     = "MouseButton2",
+    Sensitivity = 0.1,
+    _active    = false,
+}
+
+getgenv().FacilitySilentAim = {
+    Enabled = false,
+    _hooked = false,
+}
+
+getgenv().FacilityHitbox = {
+    Enabled          = false,
+    Size             = 10,
+    Transparency     = 0.7,
+    TargetPart       = "HumanoidRootPart",
+    Color            = Color3.fromRGB(255, 255, 255),
+    RespectTeam      = true,
+    RespectWhitelist = true,
+    DisableCollide   = false,
+    _originalData    = {},
+}
+
+getgenv().FlingKillEnabled = false
+getgenv().FlingPower       = 500
+
+getgenv().SpinFlingEnabled = false
+getgenv().WalkFlingEnabled = false
+getgenv().AntiFlingEnabled = false
+
+getgenv().CustomFOVEnabled = false
+getgenv().CustomFOVValue   = 70
+getgenv().MaxZoomEnabled   = false
+getgenv().MaxZoomValue     = 400
+
+-- ==========================================
+--    INTERNAL STATE
+-- ==========================================
+local isMonitorRunning      = false
+local DiamondPlatePos       = nil
+local cachedSpawnCFrame     = nil
+local depositedCrates       = {}
+local noclipConnection      = nil
+local originalCollideStates = {}
+
+-- ==========================================
+--    ESP LIBRARY
+-- ==========================================
+local ESP = (function()
+    local ESP = {}
+        local floor = math.floor
+        local round = math.round
+        local clear = table.clear
+        local unpack = table.unpack
+        local create = table.create
+        local fromMatrix = CFrame.fromMatrix
+
+        local container = Instance.new("Folder")
+        pcall(function()
+            container.Parent = (gethui and gethui()) or CoreGui
+        end)
+        if not container.Parent then
+            container.Parent = LocalPlayer:WaitForChild("PlayerGui")
+        end
+
+        local viewportSize = Camera.ViewportSize
+        Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+            viewportSize = Camera.ViewportSize
+        end)
+
+        local VERTICES = {
+            Vector3.new(-1, -1, -1), Vector3.new(-1, 1, -1),
+            Vector3.new(-1, 1,  1), Vector3.new(-1, -1, 1),
+            Vector3.new( 1, -1, -1), Vector3.new( 1, 1, -1),
+            Vector3.new( 1, 1,  1), Vector3.new( 1, -1, 1),
+        }
+
+        local function isBodyPart(name)
+            return name == "Head" or name:find("Torso") or name:find("Leg") or name:find("Arm")
+        end
+
+        local function getBoundingBox(parts)
+            local min, max
+            for i = 1, #parts do
+                local part = parts[i]
+                local cframe, size = part.CFrame, part.Size
+                min = (min or cframe.Position):Min((cframe - size * 0.5).Position)
+                max = (max or cframe.Position):Max((cframe + size * 0.5).Position)
+            end
+            local center = (min + max) * 0.5
+            return CFrame.new(center, Vector3.new(center.X, center.Y, max.Z)), max - min
+        end
+
+        local function worldToScreen(world)
+            local screen, inBounds = Camera:WorldToViewportPoint(world)
+            return Vector2.new(screen.X, screen.Y), inBounds, screen.Z
+        end
+
+        local function calculateCorners(cframe, size)
+            local corners = create(#VERTICES)
+            for i = 1, #VERTICES do
+                corners[i] = worldToScreen((cframe + size * 0.5 * VERTICES[i]).Position)
+            end
+            local minV = viewportSize:Min(unpack(corners))
+            local maxV = Vector2.zero:Max(unpack(corners))
+            return {
+                corners     = corners,
+                topLeft     = Vector2.new(floor(minV.X), floor(minV.Y)),
+                topRight    = Vector2.new(floor(maxV.X), floor(minV.Y)),
+                bottomLeft  = Vector2.new(floor(minV.X), floor(maxV.Y)),
+                bottomRight = Vector2.new(floor(maxV.X), floor(maxV.Y)),
+            }
+        end
+
+        local EspObject = {}
+        EspObject.__index = EspObject
+
+        function EspObject.new(player)
+            local self = setmetatable({}, EspObject)
+            self.player = player
+            self.bin = {}
+            self.charCache = {}
+            self.childCount = 0
+
+            local function makeDrawing(class, props)
+                local d = Drawing.new(class)
+                for k, v in pairs(props) do pcall(function() d[k] = v end) end
+                self.bin[#self.bin + 1] = d
+                return d
+            end
+
+            self.box      = makeDrawing("Square", { Thickness = 1, Filled = false, Visible = false, Color = Color3.new(1, 0, 0) })
+            self.boxOut   = makeDrawing("Square", { Thickness = 3, Filled = false, Visible = false, Color = Color3.new(0, 0, 0) })
+            self.name     = makeDrawing("Text",   { Center = true, Size = 13, Font = 2, Outline = true, Visible = false, Color = Color3.new(1, 1, 1) })
+            self.distance = makeDrawing("Text",   { Center = true, Size = 13, Font = 2, Outline = true, Visible = false, Color = Color3.new(1, 1, 1) })
+            self.tracer   = makeDrawing("Line",   { Thickness = 1, Visible = false, Color = Color3.new(1, 0, 0) })
+
+            self.highlight = Instance.new("Highlight")
+            self.highlight.Enabled = false
+            self.highlight.FillColor = Color3.new(1, 0, 0)
+            self.highlight.FillTransparency = 0.5
+            self.highlight.OutlineColor = Color3.new(0, 0, 0)
+            self.highlight.OutlineTransparency = 0
+            self.highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            self.highlight.Parent = container
+
+            self.connection = RunService.Heartbeat:Connect(function() self:Render() end)
+            return self
+        end
+
+        function EspObject:Destroy()
+            if self.connection then self.connection:Disconnect() end
+            for i = 1, #self.bin do pcall(function() self.bin[i]:Remove() end) end
+            if self.highlight then self.highlight:Destroy() end
+            clear(self)
+        end
+
+        function EspObject:Render()
+            local function hideAll()
+                self.box.Visible      = false
+                self.boxOut.Visible   = false
+                self.name.Visible     = false
+                self.distance.Visible = false
+                self.tracer.Visible   = false
+                self.highlight.Enabled = false
+            end
+
+            if not getgenv().ESPEnabled then return hideAll() end
+
+            local player = self.player
+            if not player or not player.Parent then return hideAll() end
+
+            local whitelist = getgenv().ESPWhitelist or {}
+            local lowerName = player.Name:lower()
+            for _, name in ipairs(whitelist) do
+                if tostring(name):lower() == lowerName then return hideAll() end
+            end
+
+            local character = player.Character
+            if not character then return hideAll() end
+
+            local head = character:FindFirstChild("Head")
+            local hum  = character:FindFirstChildOfClass("Humanoid")
+            if not (head and hum and hum.Health > 0) then return hideAll() end
+
+            local screenPos, onScreen, depth = worldToScreen(head.Position)
+
+            if depth > (getgenv().ESPMaxDistance or 5000) then return hideAll() end
+
+            if getgenv().ESPChams then
+                self.highlight.Enabled = true
+                self.highlight.Adornee = character
+            else
+                self.highlight.Enabled = false
+            end
+
+            if not onScreen then
+                self.box.Visible      = false
+                self.boxOut.Visible   = false
+                self.name.Visible     = false
+                self.distance.Visible = false
+                self.tracer.Visible   = false
+                return
+            end
+
+            local cache = self.charCache
+            local children = character:GetChildren()
+            if not cache[1] or self.childCount ~= #children then
+                clear(cache)
+                for i = 1, #children do
+                    local part = children[i]
+                    if part:IsA("BasePart") and isBodyPart(part.Name) then
+                        cache[#cache + 1] = part
+                    end
+                end
+                self.childCount = #children
+            end
+            if #cache == 0 then return hideAll() end
+
+            local corners = calculateCorners(getBoundingBox(cache))
+
+            if getgenv().ESPBox then
+                self.boxOut.Visible = true
+                self.boxOut.Position = corners.topLeft
+                self.boxOut.Size = corners.bottomRight - corners.topLeft
+                self.box.Visible = true
+                self.box.Position = corners.topLeft
+                self.box.Size = corners.bottomRight - corners.topLeft
+            else
+                self.box.Visible = false
+                self.boxOut.Visible = false
+            end
+
+            if getgenv().ESPName then
+                self.name.Visible = true
+                self.name.Text = player.DisplayName
+                self.name.Position = (corners.topLeft + corners.topRight) * 0.5
+                    - Vector2.new(0, self.name.TextBounds.Y + 2)
+            else
+                self.name.Visible = false
+            end
+
+            if getgenv().ESPDistance then
+                self.distance.Visible = true
+                self.distance.Text = round(depth) .. " studs"
+                self.distance.Position = (corners.bottomLeft + corners.bottomRight) * 0.5
+                    + Vector2.new(0, 2)
+            else
+                self.distance.Visible = false
+            end
+
+            if getgenv().ESPTracer then
+                self.tracer.Visible = true
+                self.tracer.From = Vector2.new(viewportSize.X * 0.5, viewportSize.Y)
+                self.tracer.To = (corners.bottomLeft + corners.bottomRight) * 0.5
+            else
+                self.tracer.Visible = false
+            end
+        end
+
+        local objects = {}
+
+        function ESP.AddPlayer(player)
+            if player == LocalPlayer then return end
+            if objects[player] then return end
+            objects[player] = EspObject.new(player)
+        end
+
+        function ESP.RemovePlayer(player)
+            if objects[player] then
+                objects[player]:Destroy()
+                objects[player] = nil
+            end
+        end
+
+        function ESP.Load()
+            for _, p in ipairs(Players:GetPlayers()) do ESP.AddPlayer(p) end
+            Players.PlayerAdded:Connect(ESP.AddPlayer)
+            Players.PlayerRemoving:Connect(ESP.RemovePlayer)
+        end
+
+        ESP.Load()
+
+        return ESP
+end)()
+
+-- ==========================================
+--    STATUS UI — Library:Panel()
+-- ==========================================
+local StatusUI = {}
+local hudVisible = false
+
+local hud = Library:Panel({
+    Title    = "Facility",
+    Icon     = "activity",
+    Width    = 220,
+    Position = UDim2.fromOffset(18, 18),
+    Visible  = false,
+})
+
+local statusLabel = hud.Content:Label("Idle", { Style = "dim" })
+hud.Content:Divider()
+local healthLabel = hud.Content:Label("-", { Style = "success" })
+
+task.spawn(function()
+    while task.wait(0.5) do
+        if hudVisible then
+            local character = LocalPlayer.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            healthLabel:Set(humanoid
+                and string.format("HP: %d / %d", math.floor(humanoid.Health), math.floor(humanoid.MaxHealth))
+                or "HP: -")
+        end
+    end
+end)
+
+function StatusUI.setStatus(text)
+    if not text then return end
+    pcall(function() statusLabel:Set(tostring(text)) end)
+end
+
+function StatusUI.setIdle()
+    StatusUI.setStatus("Idle")
+end
+
+function StatusUI.setActive(text)
+    StatusUI.setStatus(text)
+end
+
+function StatusUI.setVisible(visible)
+    hudVisible = visible
+    hud:SetVisible(visible)
+end
+
+StatusUI.setIdle()
+
+-- ==========================================
+--    UTILITY HELPERS
+-- ==========================================
+local function getCharacter()
+    local c = LocalPlayer.Character
+    return (c
+        and c:FindFirstChild("HumanoidRootPart")
+        and c:FindFirstChildOfClass("Humanoid")) and c or nil
+end
+
+local function waitForRoot(timeout)
+    timeout = timeout or 10
+    local elapsed = 0
+    while elapsed < timeout do
+        if LocalPlayer.Character
+        and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            return LocalPlayer.Character.HumanoidRootPart
+        end
+        elapsed = elapsed + task.wait(0.1)
+    end
+    return nil
+end
+
+local function waitForLeaderstats(timeout)
+    timeout = timeout or 30
+    local elapsed = 0
+    while not LocalPlayer:FindFirstChild("leaderstats") and elapsed < timeout do
+        elapsed = elapsed + task.wait(0.1)
+    end
+    return LocalPlayer:FindFirstChild("leaderstats") ~= nil
+end
+
+local function getLeaderstatValue(name, fallback)
+    local ok, val = pcall(function()
+        local ls = LocalPlayer:FindFirstChild("leaderstats")
+        if not ls then return nil end
+        local stat = ls:FindFirstChild(name)
+        return stat and stat.Value or nil
+    end)
+    if ok and val ~= nil then return val end
+    return fallback
+end
+
+local function safeWait(duration)
+    local elapsed = 0
+    while elapsed < duration do
+        if not getgenv().AutoFarmEnabled then return false end
+        elapsed = elapsed + task.wait(0.1)
+    end
+    return true
+end
+
+local function holdKey(keyCode, duration)
+    VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+    local ok = safeWait(duration)
+    VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+    return ok
+end
+
+local function pressKey(keyCode)
+    VirtualInputManager:SendKeyEvent(true,  keyCode, false, game)
+    task.wait(0.05)
+    VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+end
+
+local function anchorAt(cframe, duration)
+    local root = waitForRoot()
+    if not root then return false end
+    root.CFrame = cframe
+    local prevAnchored = root.Anchored
+    root.Anchored = true
+    local ok = safeWait(duration)
+    if root and root.Parent then
+        root.Anchored = prevAnchored
+    end
+    return ok
+end
+
+-- ==========================================
+--    NOCLIP ENGINE
+-- ==========================================
+local autoFarmNoclipActive = false
+
+local function shouldNoclipBeActive()
+    return autoFarmNoclipActive or getgenv().UserNoclipEnabled
+end
+
+local function snapshotCollideStates()
+    originalCollideStates = {}
+    local char = LocalPlayer.Character
+    if not char then return end
+    for _, part in pairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            originalCollideStates[part] = part.CanCollide
+        end
+    end
+end
+
+local function applyNoclip()
+    local char = LocalPlayer.Character
+    if not char then return end
+    for _, part in pairs(char:GetDescendants()) do
+        if part:IsA("BasePart") and part.CanCollide then
+            if originalCollideStates[part] == nil then
+                originalCollideStates[part] = true
+            end
+            part.CanCollide = false
+        end
+    end
+end
+
+local function restoreCollideStates()
+    for part, wasCollide in pairs(originalCollideStates) do
+        if part and part.Parent then
+            pcall(function() part.CanCollide = wasCollide end)
+        end
+    end
+    originalCollideStates = {}
+end
+
+local function startNoclipConnection()
+    if not noclipConnection then
+        snapshotCollideStates()
+        noclipConnection = RunService.Stepped:Connect(applyNoclip)
+    end
+end
+
+local function stopNoclipConnection()
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+    restoreCollideStates()
+end
+
+local function refreshNoclip()
+    if shouldNoclipBeActive() then
+        startNoclipConnection()
+    else
+        stopNoclipConnection()
+    end
+end
+
+local function enableNoclip()
+    autoFarmNoclipActive = true
+    refreshNoclip()
+end
+
+local function disableNoclip()
+    autoFarmNoclipActive = false
+    refreshNoclip()
+end
+
+-- ==========================================
+--    MOVEMENT FEATURES  (remplace tout le bloc existant)
+-- ==========================================
+
+-- ── State ──────────────────────────────────
+FLYING        = false
+QEfly         = true
+iyflyspeed    = 1
+vehicleflyspeed = 1
+
+local flyKeyDown, flyKeyUp
+local flightObjects = {}
+local flyControl    = { f = 0, b = 0, l = 0, r = 0, q = 0, e = 0 }
+
+-- ── Player Fly (IY style) ──────────────────
+local function sFLY(vfly)
+    local plr  = Players.LocalPlayer
+    local char = plr.Character or plr.CharacterAdded:Wait()
+    local hum  = char:FindFirstChildOfClass("Humanoid")
+    if not hum then
+        repeat task.wait() until char:FindFirstChildOfClass("Humanoid")
+        hum = char:FindFirstChildOfClass("Humanoid")
+    end
+
+    if flyKeyDown then flyKeyDown:Disconnect() end
+    if flyKeyUp   then flyKeyUp:Disconnect()   end
+
+    local T       = hum.RootPart
+    local CONTROL = { F=0, B=0, L=0, R=0, Q=0, E=0 }
+    local lCTRL   = { F=0, B=0, L=0, R=0, Q=0, E=0 }
+    local SPEED   = 0
+
+    local function FLY()
+        FLYING = true
+        local BG = Instance.new("BodyGyro")
+        BG.P = 9e4; BG.MaxTorque = Vector3.new(9e9,9e9,9e9); BG.CFrame = T.CFrame
+        BG.Parent = T
+        local BV = Instance.new("BodyVelocity")
+        BV.MaxForce = Vector3.new(9e9,9e9,9e9); BV.Velocity = Vector3.zero
+        BV.Parent = T
+
+        task.spawn(function()
+            repeat task.wait()
+                local cam = workspace.CurrentCamera
+                if not vfly and hum then hum.PlatformStand = true end
+                local spd = vfly and vehicleflyspeed or iyflyspeed
+                if CONTROL.L+CONTROL.R ~= 0 or CONTROL.F+CONTROL.B ~= 0 or CONTROL.Q+CONTROL.E ~= 0 then
+                    SPEED = 50*spd
+                else
+                    SPEED = 0
+                end
+                if SPEED ~= 0 then
+                    BV.Velocity = ((cam.CFrame.LookVector*(CONTROL.F+CONTROL.B))
+                        + ((cam.CFrame * CFrame.new(CONTROL.L+CONTROL.R, (CONTROL.F+CONTROL.B)*0.2, 0)).Position
+                           - cam.CFrame.Position)) * SPEED
+                        + Vector3.new(0, (CONTROL.Q+CONTROL.E)*SPEED, 0)
+                    lCTRL = {F=CONTROL.F,B=CONTROL.B,L=CONTROL.L,R=CONTROL.R,Q=CONTROL.Q,E=CONTROL.E}
+                else
+                    BV.Velocity = Vector3.zero
+                end
+                BG.CFrame = cam.CFrame
+            until not FLYING
+            BG:Destroy(); BV:Destroy()
+            if hum then hum.PlatformStand = false end
+            pcall(function() workspace.CurrentCamera.CameraType = Enum.CameraType.Custom end)
+        end)
+    end
+
+    flyKeyDown = UserInputService.InputBegan:Connect(function(inp, proc)
+        if proc then return end
+        local s = vfly and vehicleflyspeed or iyflyspeed
+        if inp.KeyCode == Enum.KeyCode.W then CONTROL.F =  s
+        elseif inp.KeyCode == Enum.KeyCode.S then CONTROL.B = -s
+        elseif inp.KeyCode == Enum.KeyCode.A then CONTROL.L = -s
+        elseif inp.KeyCode == Enum.KeyCode.D then CONTROL.R =  s
+        elseif inp.KeyCode == Enum.KeyCode.E and QEfly then CONTROL.Q =  s*2
+        elseif inp.KeyCode == Enum.KeyCode.Q and QEfly then CONTROL.E = -s*2
+        end
+    end)
+
+    flyKeyUp = UserInputService.InputEnded:Connect(function(inp)
+        if inp.KeyCode == Enum.KeyCode.W then CONTROL.F = 0
+        elseif inp.KeyCode == Enum.KeyCode.S then CONTROL.B = 0
+        elseif inp.KeyCode == Enum.KeyCode.A then CONTROL.L = 0
+        elseif inp.KeyCode == Enum.KeyCode.D then CONTROL.R = 0
+        elseif inp.KeyCode == Enum.KeyCode.E then CONTROL.Q = 0
+        elseif inp.KeyCode == Enum.KeyCode.Q then CONTROL.E = 0
+        end
+    end)
+
+    FLY()
+end
+
+local function NOFLY()
+    FLYING = false
+    if flyKeyDown then flyKeyDown:Disconnect() end
+    if flyKeyUp   then flyKeyUp:Disconnect()   end
+    local char = Players.LocalPlayer.Character
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then hum.PlatformStand = false end
+    pcall(function() workspace.CurrentCamera.CameraType = Enum.CameraType.Custom end)
+end
+
+-- ── WalkSpeed ─────────────────────────────
+local function applyWalkSpeed()
+    local char = Players.LocalPlayer.Character
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.WalkSpeed = getgenv().WalkSpeedEnabled and getgenv().WalkSpeedValue or 16
+    end
+end
+
+-- ── JumpPower ─────────────────────────────
+local function applyJumpPower()
+    local char = Players.LocalPlayer.Character
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        if hum.UseJumpPower then
+            hum.JumpPower = getgenv().JumpPowerEnabled and getgenv().JumpPowerValue or 50
+        else
+            hum.JumpHeight = getgenv().JumpPowerEnabled and getgenv().JumpPowerValue or 7.2
+        end
+        hum.UseJumpPower = true
+    end
+end
+
+-- ── Vehicle Fly ───────────────────────────
+local carFlyControl  = { f=0, b=0, l=0, r=0 }
+
+local function startCarFlying()
+    local char = Players.LocalPlayer.Character
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
+    local seat = hum and hum.SeatPart
+    if not seat then
+        -- tente de trouver un siège même sans être assis
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        local bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(9e9,9e9,9e9); bv.Velocity = Vector3.zero
+        bv.Parent = root
+        local bg = Instance.new("BodyGyro")
+        bg.P = 9e4; bg.MaxTorque = Vector3.new(9e9,9e9,9e9); bg.CFrame = root.CFrame
+        bg.Parent = root
+        repeat task.wait()
+            local cam = workspace.CurrentCamera
+            local mv = Vector3.new(carFlyControl.l+carFlyControl.r, 0, -(carFlyControl.f+carFlyControl.b))
+            bv.Velocity = (cam.CFrame - cam.CFrame.Position):VectorToWorldSpace(mv) * (vehicleflyspeed*50)
+            bg.CFrame = cam.CFrame
+        until not getgenv().CarFlyEnabled
+        bv:Destroy(); bg:Destroy()
+        return
+    end
+
+    local bg = Instance.new("BodyGyro", seat)
+    bg.P = 9e4; bg.MaxTorque = Vector3.new(9e9,9e9,9e9); bg.CFrame = seat.CFrame
+    local bv = Instance.new("BodyVelocity", seat)
+    bv.MaxForce = Vector3.new(9e9,9e9,9e9)
+
+    repeat task.wait()
+        local cam = workspace.CurrentCamera
+        local mv = (cam.CFrame.LookVector * (carFlyControl.f+carFlyControl.b))
+            + ((cam.CFrame * CFrame.new(carFlyControl.l+carFlyControl.r,
+               (carFlyControl.f+carFlyControl.b)*0.2, 0)).Position - cam.CFrame.Position)
+        bv.Velocity = mv * (vehicleflyspeed*50)
+        bg.CFrame   = seat.CFrame
+    until not getgenv().CarFlyEnabled
+
+    if bg and bg.Parent then bg:Destroy() end
+    if bv and bv.Parent then bv:Destroy() end
+end
+
+-- ── Vehicle Noclip ────────────────────────
+local carNoclipParts = {}
+
+local function enableCarNoclip()
+    carNoclipParts = {}
+    local char = Players.LocalPlayer.Character
+    local hum  = char and char:FindFirstChildOfClass("Humanoid")
+    local seat = hum and hum.SeatPart
+    if not seat then return end
+    local vehicleModel = seat.Parent
+    while vehicleModel and vehicleModel.ClassName ~= "Model" do
+        vehicleModel = vehicleModel.Parent
+    end
+    if not vehicleModel then return end
+    for _, v in pairs(vehicleModel:GetDescendants()) do
+        if v:IsA("BasePart") and v.CanCollide then
+            table.insert(carNoclipParts, v)
+            v.CanCollide = false
+        end
+    end
+end
+
+local function disableCarNoclip()
+    for _, v in pairs(carNoclipParts) do
+        if v and v.Parent then
+            pcall(function() v.CanCollide = true end)
+        end
+    end
+    carNoclipParts = {}
+end
+
+-- ── Swim ──────────────────────────────────
+local swimming    = false
+local oldGrav     = workspace.Gravity
+local swimbeat    = nil
+local gravReset   = nil
+
+local function startSwim(speaker)
+    if swimming then return end
+    speaker = speaker or Players.LocalPlayer
+    local char = speaker.Character
+    local hum  = char and char:FindFirstChildWhichIsA("Humanoid")
+    if not hum then return end
+
+    oldGrav = workspace.Gravity
+    workspace.Gravity = 0
+    swimming = true
+
+    gravReset = hum.Died:Connect(function()
+        workspace.Gravity = oldGrav
+        swimming = false
+        if swimbeat then swimbeat:Disconnect(); swimbeat = nil end
+    end)
+
+    local enums = Enum.HumanoidStateType:GetEnumItems()
+    table.remove(enums, table.find(enums, Enum.HumanoidStateType.None))
+    for _, v in pairs(enums) do hum:SetStateEnabled(v, false) end
+    hum:ChangeState(Enum.HumanoidStateType.Swimming)
+
+    swimbeat = RunService.Heartbeat:Connect(function()
+        pcall(function()
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root then
+                local moving = hum.MoveDirection ~= Vector3.zero
+                    or UserInputService:IsKeyDown(Enum.KeyCode.Space)
+                if not moving then root.Velocity = Vector3.zero end
+            end
+        end)
+    end)
+end
+
+local function stopSwim(speaker)
+    if not swimming then return end
+    speaker = speaker or Players.LocalPlayer
+    local char = speaker.Character
+    local hum  = char and char:FindFirstChildWhichIsA("Humanoid")
+
+    workspace.Gravity = oldGrav
+    swimming = false
+    if gravReset then gravReset:Disconnect(); gravReset = nil end
+    if swimbeat  then swimbeat:Disconnect();  swimbeat  = nil end
+
+    if hum then
+        local enums = Enum.HumanoidStateType:GetEnumItems()
+        table.remove(enums, table.find(enums, Enum.HumanoidStateType.None))
+        for _, v in pairs(enums) do hum:SetStateEnabled(v, true) end
+    end
+end
+
+-- ── Key mirror for vehicle fly ────────────
+RunService.Heartbeat:Connect(function()
+    if getgenv().CarFlyEnabled then
+        carFlyControl.f = flyControl.f
+        carFlyControl.b = flyControl.b
+        carFlyControl.l = flyControl.l
+        carFlyControl.r = flyControl.r
+    end
+end)
+
+-- ── CharacterAdded wiring ─────────────────
+Players.LocalPlayer.CharacterAdded:Connect(function(char)
+    NOFLY()
+    swimming = false
+
+    char:WaitForChild("Humanoid")
+    task.wait(0.2)
+    applyWalkSpeed()
+    applyJumpPower()
+
+    if getgenv().FlyEnabled      then task.spawn(sFLY)            end
+    if getgenv().CarFlyEnabled   then task.spawn(startCarFlying)  end
+end)
+
+-- ── Persistent WalkSpeed / JumpPower loop ─
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        local char = Players.LocalPlayer.Character
+        local hum  = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if getgenv().WalkSpeedEnabled and hum.WalkSpeed ~= getgenv().WalkSpeedValue then
+                hum.WalkSpeed = getgenv().WalkSpeedValue
+            end
+            if getgenv().JumpPowerEnabled then
+                if hum.UseJumpPower and hum.JumpPower ~= getgenv().JumpPowerValue then
+                    hum.JumpPower = getgenv().JumpPowerValue
+                elseif not hum.UseJumpPower and hum.JumpHeight ~= getgenv().JumpPowerValue then
+                    hum.JumpHeight = getgenv().JumpPowerValue
+                end
+            end
+        end
+    end
+end)
+
+-- ==========================================
+--    CAMERA FEATURES
+-- ==========================================
+local Lighting = game:GetService("Lighting")
+
+local Visual = (function()
+    local originalLighting = {
+        Brightness      = Lighting.Brightness,
+        ClockTime       = Lighting.ClockTime,
+        FogEnd          = Lighting.FogEnd,
+        FogStart        = Lighting.FogStart,
+        GlobalShadows   = Lighting.GlobalShadows,
+        OutdoorAmbient  = Lighting.OutdoorAmbient,
+    }
+    local originalAtmospheres = {}
+
+    local fovConn     = nil
+    local maxZoomConn = nil
+    local originalFOV      = Camera.FieldOfView
+    local originalMaxZoom  = LocalPlayer.CameraMaxZoomDistance
+    local originalMinZoom  = LocalPlayer.CameraMinZoomDistance
+
+    local function startCustomFOV()
+        if fovConn then fovConn:Disconnect() end
+        fovConn = RunService.RenderStepped:Connect(function()
+            if not getgenv().CustomFOVEnabled then return end
+            if Camera.FieldOfView ~= getgenv().CustomFOVValue then
+                Camera.FieldOfView = getgenv().CustomFOVValue
+            end
+        end)
+    end
+
+    local function stopCustomFOV()
+        if fovConn then fovConn:Disconnect(); fovConn = nil end
+        pcall(function() Camera.FieldOfView = originalFOV end)
+    end
+
+    local function applyMaxZoom()
+        LocalPlayer.CameraMaxZoomDistance = getgenv().MaxZoomValue
+        LocalPlayer.CameraMinZoomDistance = 0.5
+    end
+
+    local function startMaxZoom()
+        if maxZoomConn then maxZoomConn = nil end
+        applyMaxZoom()
+        maxZoomConn = task.spawn(function()
+            while getgenv().MaxZoomEnabled do
+                if LocalPlayer.CameraMaxZoomDistance ~= getgenv().MaxZoomValue then
+                    applyMaxZoom()
+                end
+                task.wait(0.5)
+            end
+        end)
+    end
+
+    local function stopMaxZoom()
+        maxZoomConn = nil
+        pcall(function()
+            LocalPlayer.CameraMaxZoomDistance = originalMaxZoom
+            LocalPlayer.CameraMinZoomDistance = originalMinZoom
+        end)
+    end
+
+    LocalPlayer.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        if not getgenv().CustomFOVEnabled then originalFOV = Camera.FieldOfView end
+        if not getgenv().MaxZoomEnabled then
+            originalMaxZoom = LocalPlayer.CameraMaxZoomDistance
+            originalMinZoom = LocalPlayer.CameraMinZoomDistance
+        else
+            applyMaxZoom()
+        end
+    end)
+
+    -- ==========================================
+    --    VISUAL FEATURES
+    -- ==========================================
+    local xrayConn      = nil
+    local fullbrightConn = nil
+    local noFogConn     = nil
+
+    local function applyXRay(enabled)
+        for _, v in pairs(workspace:GetDescendants()) do
+            if v:IsA("BasePart") then
+                local parent      = v.Parent
+                local grandparent = parent and parent.Parent
+                local hasHumanoid =
+                    (parent and parent:FindFirstChildWhichIsA("Humanoid"))
+                    or (grandparent and grandparent:FindFirstChildWhichIsA("Humanoid"))
+                if not hasHumanoid then
+                    pcall(function() v.LocalTransparencyModifier = enabled and 0.5 or 0 end)
+                end
+            end
+        end
+    end
+
+    local function startXRay()
+        applyXRay(true)
+        if xrayConn then xrayConn:Disconnect() end
+        xrayConn = workspace.DescendantAdded:Connect(function(v)
+            if not getgenv().XRayEnabled then return end
+            if v:IsA("BasePart") then
+                task.wait(0.1)
+                local parent      = v.Parent
+                local grandparent = parent and parent.Parent
+                local hasHumanoid =
+                    (parent and parent:FindFirstChildWhichIsA("Humanoid"))
+                    or (grandparent and grandparent:FindFirstChildWhichIsA("Humanoid"))
+                if not hasHumanoid then
+                    pcall(function() v.LocalTransparencyModifier = 0.5 end)
+                end
+            end
+        end)
+    end
+
+    local function stopXRay()
+        if xrayConn then xrayConn:Disconnect(); xrayConn = nil end
+        applyXRay(false)
+    end
+
+    local function applyFullbright()
+        Lighting.Brightness     = 2
+        Lighting.ClockTime      = 14
+        Lighting.FogEnd         = 100000
+        Lighting.GlobalShadows  = false
+        Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+    end
+
+    local function startFullbright()
+        if fullbrightConn then fullbrightConn:Disconnect() end
+        fullbrightConn = RunService.RenderStepped:Connect(applyFullbright)
+    end
+
+    local function stopFullbright()
+        if fullbrightConn then fullbrightConn:Disconnect(); fullbrightConn = nil end
+        pcall(function()
+            Lighting.Brightness     = originalLighting.Brightness
+            Lighting.ClockTime      = originalLighting.ClockTime
+            Lighting.GlobalShadows  = originalLighting.GlobalShadows
+            Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
+            if not getgenv().NoFogEnabled then
+                Lighting.FogEnd = originalLighting.FogEnd
+            end
+        end)
+    end
+
+    local function applyNoFog()
+        Lighting.FogEnd   = 100000
+        Lighting.FogStart = 100000
+        for _, v in pairs(Lighting:GetDescendants()) do
+            if v:IsA("Atmosphere") then
+                if not originalAtmospheres[v.Name] then
+                    originalAtmospheres[v.Name] = {
+                        Parent  = v.Parent,
+                        Density = v.Density,
+                        Offset  = v.Offset,
+                        Color   = v.Color,
+                        Decay   = v.Decay,
+                        Glare   = v.Glare,
+                        Haze    = v.Haze,
+                    }
+                end
+                pcall(function() v:Destroy() end)
+            end
+        end
+    end
+
+    local function startNoFog()
+        applyNoFog()
+        if noFogConn then noFogConn:Disconnect() end
+        noFogConn = Lighting.DescendantAdded:Connect(function(v)
+            if not getgenv().NoFogEnabled then return end
+            if v:IsA("Atmosphere") then
+                task.wait(0.1)
+                pcall(function() v:Destroy() end)
+            end
+        end)
+    end
+
+    local function stopNoFog()
+        if noFogConn then noFogConn:Disconnect(); noFogConn = nil end
+        if not getgenv().FullbrightEnabled then
+            pcall(function()
+                Lighting.FogEnd   = originalLighting.FogEnd
+                Lighting.FogStart = originalLighting.FogStart
+            end)
+        end
+        originalAtmospheres = {}
+    end
+
+    return {
+        startCustomFOV  = startCustomFOV,
+        stopCustomFOV   = stopCustomFOV,
+        startMaxZoom    = startMaxZoom,
+        stopMaxZoom     = stopMaxZoom,
+        applyMaxZoom    = applyMaxZoom,
+        startXRay       = startXRay,
+        stopXRay        = stopXRay,
+        startFullbright = startFullbright,
+        stopFullbright  = stopFullbright,
+        startNoFog      = startNoFog,
+        stopNoFog       = stopNoFog,
+    }
+end)()
+
+-- ==========================================
+--    FLING SYSTEM
+-- ==========================================
+local Fling = (function()
+    local spinFlingBAV      = nil
+    local spinFlingDiedConn = nil
+    local walkFlingLoop     = nil
+    local walkFlingDiedConn = nil
+    local antiFlingConn     = nil
+    local flingNoclipActive = false
+
+    local function getRoot()
+        local char = LocalPlayer.Character
+        return char and char:FindFirstChild("HumanoidRootPart")
+    end
+
+    local function getHumanoid()
+        local char = LocalPlayer.Character
+        return char and char:FindFirstChildOfClass("Humanoid")
+    end
+
+    local function pushFlingNoclip()
+        if flingNoclipActive then return end
+        flingNoclipActive = true
+        autoFarmNoclipActive = true
+        refreshNoclip()
+    end
+
+    local function popFlingNoclip()
+        if not flingNoclipActive then return end
+        flingNoclipActive = false
+        if not getgenv().AutoFarmEnabled then
+            autoFarmNoclipActive = false
+            refreshNoclip()
+        end
+    end
+
+    local function stopSpinFling()
+        getgenv().SpinFlingEnabled = false
+        if spinFlingDiedConn then spinFlingDiedConn:Disconnect(); spinFlingDiedConn = nil end
+        local root = getRoot()
+        if root then
+            for _, v in ipairs(root:GetChildren()) do
+                if v:IsA("BodyAngularVelocity") then pcall(function() v:Destroy() end) end
+            end
+        end
+        spinFlingBAV = nil
+        local char = LocalPlayer.Character
+        if char then
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA("BasePart") then
+                    pcall(function()
+                        p.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.3, 0.5)
+                        p.Massless = false
+                    end)
+                end
+            end
+        end
+        popFlingNoclip()
+    end
+
+    local function startSpinFling()
+        stopSpinFling()
+        getgenv().SpinFlingEnabled = true
+        local char = LocalPlayer.Character
+        local root = getRoot()
+        local hum  = getHumanoid()
+        if not (char and root and hum) then getgenv().SpinFlingEnabled = false; return end
+
+        for _, p in ipairs(char:GetDescendants()) do
+            if p:IsA("BasePart") then
+                pcall(function() p.CustomPhysicalProperties = PhysicalProperties.new(100, 0.3, 0.5) end)
+            end
+        end
+
+        pushFlingNoclip()
+        task.wait(0.1)
+
+        spinFlingBAV = Instance.new("BodyAngularVelocity")
+        spinFlingBAV.Name            = "_FacilityFling"
+        spinFlingBAV.AngularVelocity = Vector3.new(0, 99999, 0)
+        spinFlingBAV.MaxTorque       = Vector3.new(0, math.huge, 0)
+        spinFlingBAV.P               = math.huge
+        spinFlingBAV.Parent          = root
+
+        for _, v in ipairs(char:GetChildren()) do
+            if v:IsA("BasePart") then
+                v.CanCollide = false
+                v.Massless   = true
+                v.Velocity   = Vector3.new(0, 0, 0)
+            end
+        end
+
+        spinFlingDiedConn = hum.Died:Connect(stopSpinFling)
+
+        task.spawn(function()
+            while getgenv().SpinFlingEnabled do
+                if spinFlingBAV and spinFlingBAV.Parent then
+                    spinFlingBAV.AngularVelocity = Vector3.new(0, 99999, 0)
+                end
+                task.wait(0.2)
+                if not getgenv().SpinFlingEnabled then break end
+                if spinFlingBAV and spinFlingBAV.Parent then
+                    spinFlingBAV.AngularVelocity = Vector3.new(0, 0, 0)
+                end
+                task.wait(0.1)
+            end
+        end)
+    end
+
+    local function stopWalkFling()
+        getgenv().WalkFlingEnabled = false
+        if walkFlingDiedConn then walkFlingDiedConn:Disconnect(); walkFlingDiedConn = nil end
+        walkFlingLoop = nil
+        popFlingNoclip()
+    end
+
+    local function startWalkFling()
+        stopWalkFling()
+        getgenv().WalkFlingEnabled = true
+        local hum = getHumanoid()
+        if hum then walkFlingDiedConn = hum.Died:Connect(stopWalkFling) end
+        pushFlingNoclip()
+
+        walkFlingLoop = task.spawn(function()
+            while getgenv().WalkFlingEnabled do
+                RunService.Heartbeat:Wait()
+                local char = LocalPlayer.Character
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                if not (char and char.Parent and root and root.Parent) then continue end
+                local vel   = root.Velocity
+                local movel = 0.1
+                root.Velocity = vel * 10000 + Vector3.new(0, 10000, 0)
+                RunService.RenderStepped:Wait()
+                char = LocalPlayer.Character
+                root = char and char:FindFirstChild("HumanoidRootPart")
+                if char and char.Parent and root and root.Parent then root.Velocity = vel end
+                RunService.Stepped:Wait()
+                char = LocalPlayer.Character
+                root = char and char:FindFirstChild("HumanoidRootPart")
+                if char and char.Parent and root and root.Parent then
+                    root.Velocity = vel + Vector3.new(0, movel, 0)
+                    movel = movel * -1
+                end
+            end
+        end)
+    end
+
+    local function startAntiFling()
+        if antiFlingConn then antiFlingConn:Disconnect() end
+        getgenv().AntiFlingEnabled = true
+        antiFlingConn = RunService.Stepped:Connect(function()
+            if not getgenv().AntiFlingEnabled then return end
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character then
+                    for _, v in ipairs(player.Character:GetDescendants()) do
+                        if v:IsA("BasePart") and v.CanCollide then v.CanCollide = false end
+                    end
+                end
+            end
+        end)
+    end
+
+    local function stopAntiFling()
+        getgenv().AntiFlingEnabled = false
+        if antiFlingConn then antiFlingConn:Disconnect(); antiFlingConn = nil end
+    end
+
+    LocalPlayer.CharacterAdded:Connect(function(char)
+        char:WaitForChild("HumanoidRootPart")
+        task.wait(0.3)
+        if getgenv().SpinFlingEnabled then startSpinFling() end
+        if getgenv().WalkFlingEnabled then startWalkFling() end
+    end)
+
+    return {
+        startSpinFling = startSpinFling,
+        stopSpinFling  = stopSpinFling,
+        startWalkFling = startWalkFling,
+        stopWalkFling  = stopWalkFling,
+        startAntiFling = startAntiFling,
+        stopAntiFling  = stopAntiFling,
+    }
+end)()
+
+-- ==========================================
+--    MISC FEATURES
+-- ==========================================
+local antiAFKConnection = nil
+
+local function setupAntiAFK()
+    if antiAFKConnection then antiAFKConnection:Disconnect() end
+    antiAFKConnection = LocalPlayer.Idled:Connect(function()
+        if not getgenv().AntiAFKEnabled then return end
+        local vu = game:GetService("VirtualUser")
+        pcall(function()
+            vu:Button2Down(Vector2.new(), Camera.CFrame)
+            task.wait(1)
+            vu:Button2Up(Vector2.new(), Camera.CFrame)
+        end)
+    end)
+end
+setupAntiAFK()
+
+local function applyFPSBoost()
+    pcall(function()
+        local terrain = workspace:FindFirstChildOfClass("Terrain")
+        if terrain then
+            terrain.WaterWaveSize    = 0
+            terrain.WaterWaveSpeed   = 0
+            terrain.WaterReflectance = 0
+            terrain.WaterTransparency = 0
+        end
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 9e9
+        settings().Rendering.QualityLevel = 1
+        for _, v in pairs(game:GetDescendants()) do
+            if v:IsA("Part") or v:IsA("UnionOperation") or v:IsA("MeshPart")
+                or v:IsA("CornerWedgePart") or v:IsA("TrussPart") then
+                v.Material    = Enum.Material.Plastic
+                v.Reflectance = 0
+            elseif v:IsA("Decal") then
+                v.Transparency = 1
+            elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+                v.Lifetime = NumberRange.new(0)
+            elseif v:IsA("Explosion") then
+                v.BlastPressure = 1
+                v.BlastRadius   = 1
+            end
+        end
+        for _, v in pairs(Lighting:GetDescendants()) do
+            if v:IsA("BlurEffect") or v:IsA("SunRaysEffect")
+                or v:IsA("ColorCorrectionEffect") or v:IsA("BloomEffect")
+                or v:IsA("DepthOfFieldEffect") then
+                v.Enabled = false
+            end
+        end
+    end)
+end
+
+local function recursiveCleanup(parent)
+    if not parent then return end
+    for _, tycoon in pairs(parent:GetChildren()) do
+        if tycoon:IsA("Model") and tycoon:FindFirstChild("PurchasedObjects") then
+            for _, obj in pairs(tycoon.PurchasedObjects:GetChildren()) do
+                if getgenv().RemoveLaser and obj:FindFirstChild("Laser") then
+                    pcall(function() obj.Laser:Destroy() end)
+                end
+                if getgenv().RemoveElectric and obj.Name == "Electric Fence" then
+                    pcall(function() obj:Destroy() end)
+                end
+            end
+        end
+        recursiveCleanup(tycoon)
+    end
+end
+
+task.spawn(function()
+    while true do
+        task.wait(5)
+        if not (getgenv().RemoveLaser or getgenv().RemoveElectric) then continue end
+        local tycoonRoot = workspace:FindFirstChild("Tycoon")
+        if tycoonRoot and tycoonRoot:FindFirstChild("Tycoons") then
+            recursiveCleanup(tycoonRoot.Tycoons)
+        end
+    end
+end)
+
+local function applyNoFallDamage()
+    if getgenv().NoFallDamageApplied then return end
+    local ok, err = pcall(function()
+        local FDMG = ReplicatedStorage:WaitForChild("ACS_Engine", 5)
+            :WaitForChild("Events", 5):WaitForChild("FDMG", 5)
+        if not FDMG then return end
+        local mt = getrawmetatable(game)
+        setreadonly(mt, false)
+        local oldNamecall = mt.__namecall
+        mt.__namecall = function(self, ...)
+            local method = getnamecallmethod()
+            if tostring(self) == "FDMG" and method == "FireServer" then return nil end
+            return oldNamecall(self, ...)
+        end
+        setreadonly(mt, true)
+    end)
+    if ok then
+        getgenv().NoFallDamageApplied = true
+    else
+        warn("[FacilityHub] No Fall Damage failed: " .. tostring(err))
+    end
+end
+
+-- ==========================================
+--    TYCOON HELPERS
+-- ==========================================
+local function findPlayerTycoon()
+    local tycoons = workspace:FindFirstChild("Tycoon")
+    if not tycoons or not tycoons:FindFirstChild("Tycoons") then return nil end
+    for _, t in ipairs(tycoons.Tycoons:GetChildren()) do
+        local owner = t:FindFirstChild("Owner")
+        if owner and owner.Value == LocalPlayer then return t end
+    end
+    return nil
+end
+
+local function findTargetFolder()
+    local tycoon = findPlayerTycoon()
+    return tycoon and tycoon:FindFirstChild("UnpurchasedButtons")
+end
+
+local function storeDiamondPlatePosition()
+    local tycoon = findPlayerTycoon()
+    if not tycoon then return end
+    pcall(function()
+        local part = tycoon.Essentials["Oil Collector"].Collector.Part
+        if part and part:IsA("BasePart") then DiamondPlatePos = part.CFrame end
+    end)
+end
+
+local function getSpawnVisualizerCFrame()
+    local tycoon = findPlayerTycoon()
+    if tycoon and tycoon:FindFirstChild("Essentials") then
+        local sv = tycoon.Essentials:FindFirstChild("Spawn Visualizer")
+        if sv and sv:IsA("BasePart") then
+            local cf = sv.CFrame + Vector3.new(0, 3, 0)
+            cachedSpawnCFrame = cf
+            return cf
+        end
+    end
+    return cachedSpawnCFrame
+end
+
+local function cacheSpawnVisualizer()
+    pcall(getSpawnVisualizerCFrame)
+end
+
+local function getDepositSpot(index)
+    if not DiamondPlatePos then return nil end
+    local lateral = DEPOSIT_LATERAL_OFFSETS[index]
+    if not lateral then return nil end
+    local forward = -DiamondPlatePos.LookVector * DEPOSIT_FORWARD_DISTANCE
+    local side    =  DiamondPlatePos.RightVector * lateral
+    return DiamondPlatePos + forward + side
+end
+
+local function buildFallbackTeleports()
+    return FALLBACK_CFRAMES
+end
+
+-- ==========================================
+--    BUTTON / CRATE / CASH HELPERS
+-- ==========================================
+local function isButtonValid(instance)
+    local neon = instance:FindFirstChild("Neon")
+    if not (neon and neon:IsA("BasePart")) then return false end
+    local parent = neon.Parent
+    for _, color in ipairs(AUTO_BUY_COLORS) do
+        if color == "Rebirth" and neon.Color == Color3.fromRGB(255, 255, 0) then
+            local rawReq = parent and parent:GetAttribute("RebirthRequirement")
+            local rawPr  = getLeaderstatValue("Rebirths", 0)
+            local req = tonumber(rawReq)
+            local pr  = tonumber(rawPr) or 0
+            if req and req <= pr then return true end
+        elseif color == "Vert" and neon.Color == Color3.fromRGB(0, 255, 0) then
+            return true
+        elseif color == "Bleu" and neon.Color == Color3.fromRGB(4, 175, 235) then
+            return true
+        end
+    end
+    return false
+end
+
+local function getAvailableButtons(folder)
+    local buttons = {}
+    if not folder then return buttons end
+    for _, child in ipairs(folder:GetChildren()) do
+        if isButtonValid(child) then table.insert(buttons, child) end
+    end
+    return buttons
+end
+
+local function isCashTargetReached()
+    if not CHECK_CASH_TARGET then return false end
+    local target = getgenv().CashTarget
+    if not target or target <= 0 then return false end
+    return getLeaderstatValue("Cash", 0) >= target
+end
+
+local function hasCrateTypesSelected()
+    return getgenv().SelectedCrateTypes and #getgenv().SelectedCrateTypes > 0
+end
+
+local function findValidCrate()
+    if not hasCrateTypesSelected() then return nil end
+    local types   = getgenv().SelectedCrateTypes
+    local crateWS = workspace:FindFirstChild("Game Systems")
+        and workspace["Game Systems"]:FindFirstChild("Collectibles Workspace")
+        and workspace["Game Systems"]["Collectibles Workspace"]:FindFirstChild("PartCrate")
+    if not crateWS then return nil end
+
+    local function getCratePos(crate)
+        if crate:IsA("BasePart") then return crate.Position end
+        if crate:IsA("Model") and crate.PrimaryPart then return crate.PrimaryPart.Position end
+        local first = crate:FindFirstChildWhichIsA("BasePart")
+        return first and first.Position or nil
+    end
+
+    local function matchesSelectedType(crateName)
+        for _, prefix in ipairs(types) do
+            if crateName:sub(1, #prefix + 1) == (prefix .. "_") then return true end
+        end
+        return false
+    end
+
+    local maxLateral = 0
+    for _, l in ipairs(DEPOSIT_LATERAL_OFFSETS) do
+        if math.abs(l) > maxLateral then maxLateral = math.abs(l) end
+    end
+    local maxDist = math.sqrt(DEPOSIT_FORWARD_DISTANCE^2 + maxLateral^2)
+    local EXCLUSION_RADIUS = maxDist + 6
+
+    for _, crate in ipairs(crateWS:GetChildren()) do
+        if matchesSelectedType(crate.Name) then
+            local owner = crate:GetAttribute("Owner")
+            if owner and tostring(owner) == LocalPlayer.Name then continue end
+            local cratePos = getCratePos(crate)
+            if not cratePos then continue end
+            if DiamondPlatePos then
+                local distToPlate = (cratePos - DiamondPlatePos.Position).Magnitude
+                if distToPlate < EXCLUSION_RADIUS then continue end
+            end
+            return crate
+        end
+    end
+    return nil
+end
+
+-- ==========================================
+--    AUTOFARM - INTERACTIONS
+-- ==========================================
+local function createSafePost()
+    local existing = workspace:FindFirstChild("SafePost")
+    if existing then existing:Destroy() end
+    local part        = Instance.new("Part")
+    part.Name         = "SafePost"
+    part.Size         = Vector3.new(10, 1, 10)
+    part.Anchored     = true
+    part.CanCollide   = true
+    part.Transparency = 0.5
+    part.BrickColor   = BrickColor.new("Bright green")
+    part.Material     = Enum.Material.Neon
+    part.CFrame       = SafePostCFrame
+    part.Parent       = workspace
+end
+
+local function interactWithCashCollector()
+    local tycoon = findPlayerTycoon()
+    if not tycoon or not tycoon:FindFirstChild("Essentials") then return end
+    pcall(function()
+        local essentials = tycoon.Essentials
+        local collectorParts = essentials:FindFirstChild("CollectorParts")
+        local target = collectorParts and collectorParts:FindFirstChild("Collector")
+        if not (target and target:IsA("BasePart")) then
+            target = essentials:FindFirstChild("CashCollector")
+        end
+        if target and target:IsA("BasePart") then
+            local root = waitForRoot()
+            if root then
+                root.CFrame = target.CFrame + Vector3.new(0, 3, 0)
+                safeWait(0.5)
+            end
+        end
+    end)
+end
+
+local function doFallbackTeleport()
+    local positions = buildFallbackTeleports()
+    if #positions == 0 then
+        StatusUI.setActive("Searching for crates...")
+        safeWait(2)
+        return
+    end
+    local root = waitForRoot()
+    if not root then return end
+    StatusUI.setActive("Searching for crates (map tour)")
+
+    for i, pos in ipairs(positions) do
+        if not getgenv().AutoFarmEnabled then return end
+        root.CFrame = pos
+        local elapsed = 0
+        local checkInterval = 0.25
+        while elapsed < TELEPORT_DELAY do
+            if not getgenv().AutoFarmEnabled then return end
+            if findValidCrate() then
+                StatusUI.setActive("Crate detected - tour interrupted")
+                return
+            end
+            local waited = task.wait(checkInterval)
+            elapsed = elapsed + (waited or checkInterval)
+        end
+    end
+end
+
+local function teleportToButton(button)
+    if not button then return end
+    local neon = button:FindFirstChild("Neon")
+    if not (neon and neon:IsA("BasePart")) then return end
+    local root = waitForRoot()
+    if not root then return end
+    local btnName = button.Name or "?"
+    StatusUI.setActive("AutoBuy - " .. btnName)
+    local elapsed = 0
+    local wasValid = button.Parent and isButtonValid(button)
+    while (getgenv().AutoFarmEnabled or getgenv().AutoBuyOnlyEnabled)
+        and button.Parent
+        and isButtonValid(button)
+        and elapsed < 5 do
+        pcall(function() root.CFrame = neon.CFrame + Vector3.new(0, 5, 0) end)
+        elapsed = elapsed + task.wait(0.5)
+    end
+    if wasValid and not (button.Parent and isButtonValid(button)) then
+        getgenv().FarmStats.buttonsBought = getgenv().FarmStats.buttonsBought + 1
+    end
+end
+
+local function tweenRootTo(root, targetCFrame, speed)
+    local distance = (targetCFrame.Position - root.Position).Magnitude
+    speed = math.max(speed or getgenv().FarmFlySpeed, 1)
+    local duration = math.max(distance / speed, 0.05)
+    local tween = TweenService:Create(
+        root,
+        TweenInfo.new(duration, Enum.EasingStyle.Linear),
+        {CFrame = targetCFrame}
+    )
+    tween:Play()
+    local elapsed = 0
+    while tween.PlaybackState == Enum.PlaybackState.Playing do
+        if not getgenv().AutoFarmEnabled then tween:Cancel(); return false end
+        elapsed = elapsed + task.wait(0.05)
+        if elapsed > duration + 2 then tween:Cancel(); break end
+    end
+    root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if root then root.CFrame = targetCFrame end
+    return true
+end
+
+local function moveToPositionForCrate(targetCFrame)
+    local root = waitForRoot()
+    if not root then return false end
+    if getgenv().FarmMovementMode ~= "Fly" then
+        root.CFrame = targetCFrame
+        return true
+    end
+    local altitude = getgenv().FarmFlyAltitude or 150
+    local ascendCFrame = root.CFrame + Vector3.new(0, altitude, 0)
+    if not tweenRootTo(root, ascendCFrame, getgenv().FarmFlySpeed) then return false end
+    if not getgenv().AutoFarmEnabled then return false end
+    root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    local aboveTarget = targetCFrame + Vector3.new(0, altitude, 0)
+    if not tweenRootTo(root, aboveTarget, getgenv().FarmFlySpeed) then return false end
+    if not getgenv().AutoFarmEnabled then return false end
+    root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    if not tweenRootTo(root, targetCFrame, getgenv().FarmFlySpeed) then return false end
+    return true
+end
+
+-- ==========================================
+--    CRATE FLOW
+-- ==========================================
+local function pickupNewCrate()
+    local crate = findValidCrate()
+    if not crate then return false end
+    local root = waitForRoot()
+    if not root then return false end
+    local cratePos
+    if crate:IsA("BasePart") then
+        cratePos = crate.CFrame
+    elseif crate:IsA("Model") and crate.PrimaryPart then
+        cratePos = crate.PrimaryPart.CFrame
+    else
+        local first = crate:FindFirstChildWhichIsA("BasePart")
+        cratePos = first and first.CFrame
+    end
+    if not cratePos then return false end
+    StatusUI.setActive("Picking up crate (" .. tostring(crate.Name) .. ")")
+    root.CFrame = cratePos + Vector3.new(0, 1, 0)
+    if not safeWait(0.5) then return false end
+    if not holdKey(Enum.KeyCode.E, 2.0) then return false end
+    if not holdKey(Enum.KeyCode.E, 2.0) then return false end
+    getgenv().FarmStats.cratesCollected = getgenv().FarmStats.cratesCollected + 1
+    return true
+end
+
+local function depositCrateAtSpot(orderIndex)
+    local depositCFrame = getDepositSpot(orderIndex)
+    if not depositCFrame then return false end
+    StatusUI.setActive("Depositing crate " .. orderIndex .. "/" .. getgenv().CrateCycleCount)
+    if not moveToPositionForCrate(depositCFrame) then return false end
+    if not getgenv().AutoFarmEnabled then return false end
+    if not safeWait(2.5) then return false end
+    if not holdKey(Enum.KeyCode.X, 0.5) then return false end
+    if not safeWait(0.3) then return false end
+    table.insert(depositedCrates, { order = orderIndex, depositCFrame = depositCFrame })
+    return true
+end
+
+local function sellDepositedCrate(entry)
+    if not entry then return false end
+    local root = waitForRoot()
+    if not root then return false end
+    StatusUI.setActive("Retrieving deposited crate " .. entry.order .. "/" .. getgenv().CrateCycleCount)
+    root.CFrame = entry.depositCFrame
+    if not safeWait(0.5) then return false end
+    if not holdKey(Enum.KeyCode.E, 1.0) then return false end
+    StatusUI.setActive("Selling crate " .. entry.order .. "/" .. getgenv().CrateCycleCount)
+    if not DiamondPlatePos then return false end
+    if not moveToPositionForCrate(DiamondPlatePos) then return false end
+    if not safeWait(1.5) then return false end
+    if not holdKey(Enum.KeyCode.E, 1.5) then return false end
+    if not safeWait(1) then return false end
+    getgenv().FarmStats.cratesSold = getgenv().FarmStats.cratesSold + 1
+    return true
+end
+
+-- ==========================================
+--    FARM MODES
+-- ==========================================
+local function runModeCrateDeposit()
+    if not hasCrateTypesSelected() then StatusUI.setActive("No crate type selected"); safeWait(3); return end
+    storeDiamondPlatePosition()
+    if not DiamondPlatePos then StatusUI.setActive("DiamondPlate not found"); safeWait(3); return end
+
+    while getgenv().AutoFarmEnabled do
+        local depositedCount = #depositedCrates
+        while depositedCount < getgenv().CrateCycleCount and getgenv().AutoFarmEnabled do
+            if not pickupNewCrate() then
+                doFallbackTeleport()
+                if not getgenv().AutoFarmEnabled then return end
+            else
+                if not depositCrateAtSpot(depositedCount + 1) then
+                    if not getgenv().AutoFarmEnabled then return end
+                else
+                    depositedCount = depositedCount + 1
+                    if not safeWait(2) then return end
+                end
+            end
+        end
+        if not getgenv().AutoFarmEnabled then return end
+        for i = 1, #depositedCrates do
+            if not getgenv().AutoFarmEnabled then return end
+            sellDepositedCrate(depositedCrates[i])
+        end
+        depositedCrates = {}
+        getgenv().FarmStats.cyclesCompleted = getgenv().FarmStats.cyclesCompleted + 1
+        if isCashTargetReached() then StatusUI.setActive("Cash target reached - switching to AutoBuy"); return end
+    end
+end
+
+local function runModeCrateDirect()
+    if not hasCrateTypesSelected() then StatusUI.setActive("No crate type selected"); safeWait(3); return end
+    storeDiamondPlatePosition()
+    if not DiamondPlatePos then StatusUI.setActive("DiamondPlate not found"); safeWait(3); return end
+
+    while getgenv().AutoFarmEnabled do
+        if not pickupNewCrate() then
+            doFallbackTeleport()
+            if not getgenv().AutoFarmEnabled then return end
+        else
+            StatusUI.setActive("Selling crate directly")
+            if not moveToPositionForCrate(DiamondPlatePos) then
+                if not getgenv().AutoFarmEnabled then return end
+            else
+                if not safeWait(1.5) then return end
+                if not holdKey(Enum.KeyCode.E, 1.5) then return end
+                if not safeWait(1) then return end
+                getgenv().FarmStats.cratesSold      = getgenv().FarmStats.cratesSold + 1
+                getgenv().FarmStats.cyclesCompleted = getgenv().FarmStats.cyclesCompleted + 1
+            end
+        end
+        if isCashTargetReached() then StatusUI.setActive("Cash target reached - switching to AutoBuy"); return end
+    end
+end
+
+local function runModeCrate()
+    if getgenv().CrateSellMode == "Direct" then runModeCrateDirect() else runModeCrateDeposit() end
+end
+
+local function runModeCashCollector()
+    while getgenv().AutoFarmEnabled do
+        StatusUI.setActive("CashCollector - vacuuming")
+        interactWithCashCollector()
+        if not safeWait(0.5) then break end
+        if isCashTargetReached() then StatusUI.setActive("Cash target reached - switching to AutoBuy"); break end
+    end
+end
+
+local function visitCashCollector(duration)
+    StatusUI.setActive("CashCollector - vacuuming (" .. duration .. "s)")
+    local elapsed = 0
+    while elapsed < duration and getgenv().AutoFarmEnabled do
+        interactWithCashCollector()
+        elapsed = elapsed + 0.5
+        if not safeWait(0.5) then return false end
+    end
+    return true
+end
+
+local function runModeFusion()
+    if not hasCrateTypesSelected() then StatusUI.setActive("No crate type selected"); safeWait(3); return end
+    storeDiamondPlatePosition()
+    if not DiamondPlatePos then StatusUI.setActive("DiamondPlate not found"); safeWait(3); return end
+
+    while getgenv().AutoFarmEnabled do
+        local depositedCount = #depositedCrates
+        while depositedCount < getgenv().CrateCycleCount and getgenv().AutoFarmEnabled do
+            if not pickupNewCrate() then
+                doFallbackTeleport()
+                if not getgenv().AutoFarmEnabled then return end
+            else
+                if not depositCrateAtSpot(depositedCount + 1) then
+                    if not getgenv().AutoFarmEnabled then return end
+                else
+                    depositedCount = depositedCount + 1
+                    if not safeWait(2) then return end
+                end
+            end
+        end
+        if not getgenv().AutoFarmEnabled then return end
+        if not visitCashCollector(3) then return end
+        for i = 1, #depositedCrates do
+            if not getgenv().AutoFarmEnabled then return end
+            sellDepositedCrate(depositedCrates[i])
+        end
+        depositedCrates = {}
+        if isCashTargetReached() then StatusUI.setActive("Cash target reached - switching to AutoBuy"); return end
+    end
+end
+
+-- ==========================================
+--    AUTOFARM - MAIN LOOPS
+-- ==========================================
+local function startAutoBuy()
+    while true do
+        if not getgenv().AutoFarmEnabled then break end
+        local folder  = findTargetFolder()
+        local buttons = folder and getAvailableButtons(folder) or {}
+        local cashReached = isCashTargetReached()
+
+        if cashReached and #buttons > 0 then
+            StatusUI.setActive("AutoBuy mode (cash target reached)")
+            for _, btn in ipairs(buttons) do
+                if not getgenv().AutoFarmEnabled then return end
+                teleportToButton(btn)
+            end
+        elseif cashReached and #buttons == 0 then
+            StatusUI.setActive("Cash target reached - waiting for buttons")
+            if not safeWait(2) then break end
+        elseif #buttons > 0 then
+            for _, btn in ipairs(buttons) do
+                if not getgenv().AutoFarmEnabled then return end
+                teleportToButton(btn)
+            end
+        else
+            local mode = getgenv().ModeRecupMonay
+            if     mode == "Crate"         then runModeCrate()
+            elseif mode == "CashCollector" then runModeCashCollector()
+            elseif mode == "Fusion"        then runModeFusion()
+            end
+        end
+
+        if not safeWait(0.5) then break end
+    end
+end
+
+local function runAutoBuyOnly()
+    while getgenv().AutoBuyOnlyEnabled do
+        local folder  = findTargetFolder()
+        local buttons = folder and getAvailableButtons(folder) or {}
+        if #buttons > 0 then
+            for _, btn in ipairs(buttons) do
+                if not getgenv().AutoBuyOnlyEnabled then return end
+                teleportToButton(btn)
+            end
+        end
+        if not getgenv().AutoBuyOnlyEnabled then return end
+        task.wait(1)
+    end
+end
+
+local function monitorAutoBuy()
+    if isMonitorRunning then return end
+    isMonitorRunning = true
+    while true do
+        if getgenv().AutoFarmEnabled then
+            cacheSpawnVisualizer()
+            startAutoBuy()
+            pcall(function()
+                local r = waitForRoot(2)
+                local spawnCFrame = getSpawnVisualizerCFrame()
+                if r and spawnCFrame then r.CFrame = spawnCFrame end
+            end)
+        end
+        task.wait(1)
+    end
+end
+
+-- ==========================================
+--    WEBHOOK SYSTEM
+-- ==========================================
+local Webhook = (function()
+    local function commaFormat(n)
+        local s = tostring(math.floor(tonumber(n) or 0))
+        return s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+    end
+
+    local function abbreviate(n)
+        n = tonumber(n) or 0
+        local abbrev = {{1e12, "T"}, {1e9, "B"}, {1e6, "M"}, {1e3, "K"}}
+        for _, v in ipairs(abbrev) do
+            if n >= v[1] then return string.format("%.2f%s", n / v[1], v[2]) end
+        end
+        return tostring(n)
+    end
+
+    local function getSessionTime()
+        local seconds = os.time() - (getgenv().StartTime or os.time())
+        local hours = math.floor(seconds / 3600)
+        local mins  = math.floor((seconds % 3600) / 60)
+        return string.format("%dh %02dm", hours, mins)
+    end
+
+    local function getTycoonCompletion()
+        local ok, val = pcall(function()
+            return LocalPlayer.PlayerGui.UI.Container.HUD.Menu.HUD.Left
+                .TycoonCompletion.Bar.BarProgressAmount.Text
+        end)
+        return (ok and val) or "N/A"
+    end
+
+    local function getCurrentStats()
+        return {
+            Cash             = getLeaderstatValue("Cash", 0),
+            Kills            = getLeaderstatValue("Kills", 0),
+            Deaths           = getLeaderstatValue("Deaths", 0),
+            Medals           = getLeaderstatValue("Medals", 0),
+            Rebirths         = getLeaderstatValue("Rebirths", 0),
+            TycoonCompletion = getTycoonCompletion(),
+        }
+    end
+
+    local function formatGain(current, start, useAbbrev)
+        local diff = (tonumber(current) or 0) - (tonumber(start) or 0)
+        if useAbbrev then
+            return string.format("%s (+%s)", abbreviate(current), abbreviate(diff))
+        else
+            return string.format("%s (+%d)", commaFormat(current), diff)
+        end
+    end
+
+    local function sendWebhook()
+        local url = getgenv().WebhookURL
+        if not url or url == "" or not url:find("discord.com/api/webhooks/") then return end
+        local httpreq = http_request or request or (syn and syn.request) or (fluxus and fluxus.request)
+        if type(httpreq) ~= "function" then
+            warn("[FacilityHub] No HTTP request function available for webhook")
+            return
+        end
+        local selected = {}
+        for _, v in ipairs(getgenv().WebhookData or {}) do selected[v] = true end
+        if not getgenv().StartStats then getgenv().StartStats = getCurrentStats() end
+        local startStats = getgenv().StartStats
+        local desc = "### Facility Hub - War Tycoon\n"
+        if selected["Name"] then
+            desc = desc .. string.format("\n👤 **Player:** ||%s||\n", LocalPlayer.Name)
+        end
+        if selected["Stats"] then
+            local cur = getCurrentStats()
+            desc = desc .. "\n📊 **Stats**\n"
+            desc = desc .. string.format("💰 Cash: `%s`\n", formatGain(cur.Cash, startStats.Cash, true))
+            desc = desc .. string.format("♻️ Rebirths: `%s`\n", formatGain(cur.Rebirths, startStats.Rebirths, false))
+            desc = desc .. string.format("⚔️ Kills: `%s`\n", formatGain(cur.Kills, startStats.Kills, false))
+            desc = desc .. string.format("💀 Deaths: `%s`\n", formatGain(cur.Deaths, startStats.Deaths, false))
+            desc = desc .. string.format("🎖️ Medals: `%s`\n", formatGain(cur.Medals, startStats.Medals, false))
+            desc = desc .. string.format("🏗️ Tycoon Completion: `%s`\n", cur.TycoonCompletion)
+        end
+        if selected["Farm Activity"] then
+            local fs = getgenv().FarmStats
+            desc = desc .. "\n🚜 **Farm Activity** (this session)\n"
+            desc = desc .. string.format("📦 Crates collected: `%d`\n", fs.cratesCollected)
+            desc = desc .. string.format("💵 Crates sold: `%d`\n", fs.cratesSold)
+            desc = desc .. string.format("🎯 Cycles completed: `%d`\n", fs.cyclesCompleted)
+            desc = desc .. string.format("🛒 Buttons bought: `%d`\n", fs.buttonsBought)
+        end
+        local payload = {
+            embeds = {{
+                description = desc,
+                color = tonumber("FF8C28", 16),
+                footer = {
+                    text = string.format("Facility Hub • Session: %s • %s",
+                        getSessionTime(), os.date("%x %X"))
+                }
+            }}
+        }
+        if getgenv().WebhookPingUser then
+            local uid = getgenv().WebhookUserID
+            payload.content = (uid and uid ~= "") and ("<@" .. uid .. ">") or "@everyone"
+        end
+        task.spawn(function()
+            pcall(function()
+                httpreq({
+                    Url     = url,
+                    Method  = "POST",
+                    Headers = { ["Content-Type"] = "application/json" },
+                    Body    = game:GetService("HttpService"):JSONEncode(payload)
+                })
+            end)
+        end)
+    end
+
+    task.spawn(function()
+        waitForLeaderstats(30)
+        task.wait(2)
+        getgenv().StartStats = getCurrentStats()
+        getgenv().StartTime  = os.time()
+    end)
+
+    task.spawn(function()
+        while true do
+            task.wait(60)
+            if not getgenv().WebhookEnabled then continue end
+            local delayMins = math.max(getgenv().WebhookDelay or 5, 1)
+            if not getgenv().LastWebhookSend or getgenv().LastWebhookSend == 0 then
+                getgenv().LastWebhookSend = tick()
+            end
+            if tick() - getgenv().LastWebhookSend >= delayMins * 60 then
+                sendWebhook()
+                getgenv().LastWebhookSend = tick()
+            end
+        end
+    end)
+
+        return { sendWebhook = sendWebhook, getCurrentStats = getCurrentStats }
+end)()
+
+-- ==========================================
+--    SHARED TARGETING ENGINE
+-- ==========================================
+local TargetingEngine = {}
+do
+    function TargetingEngine.findTargetPart(player, partName)
+        if not player.Character or not partName then return nil end
+        local part = player.Character:FindFirstChild(partName, true)
+        if part and part:IsA("BasePart") then return part end
+        return nil
+    end
+
+    function TargetingEngine.isInFOV(targetPosition, fovRadius)
+        local screenPos, isVisible = Camera:WorldToViewportPoint(targetPosition)
+        if not isVisible then return false end
+        local mousePos = Vector2.new(Mouse.X, Mouse.Y)
+        local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+        return dist <= fovRadius
+    end
+
+    function TargetingEngine.isAlive(player)
+        local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+        return hum and hum.Health > 0
+    end
+
+    function TargetingEngine.passesTeamCheck(player)
+        if not getgenv().FacilityTargeting.TeamCheck then return true end
+        local localFaction = LocalPlayer:FindFirstChild("PersonalFactionData")
+            and LocalPlayer.PersonalFactionData:FindFirstChild("PersonalFaction")
+        local targetFaction = player:FindFirstChild("PersonalFactionData")
+            and player.PersonalFactionData:FindFirstChild("PersonalFaction")
+        local sameFaction = localFaction and targetFaction
+            and localFaction.Value == targetFaction.Value
+        local hasTeammateLabel = player.Character
+            and player.Character:FindFirstChild("HumanoidRootPart")
+            and player.Character.HumanoidRootPart:FindFirstChild("TeammateLabel")
+        local sameRobloxTeam = (player.Team == LocalPlayer.Team)
+        return not (sameFaction or hasTeammateLabel or sameRobloxTeam)
+    end
+
+    function TargetingEngine.passesWallCheck(player, targetPart, originPos)
+        if not getgenv().FacilityTargeting.WallCheck then return true end
+        local distance = (originPos - targetPart.Position).Magnitude
+        local ray = workspace:FindPartOnRayWithIgnoreList(
+            Ray.new(originPos, (targetPart.Position - originPos).Unit * distance),
+            { LocalPlayer.Character, Camera }
+        )
+        return ray and ray:IsDescendantOf(player.Character)
+    end
+
+    function TargetingEngine.getPlayerClosestToCursor()
+        local config = getgenv().FacilityTargeting
+        local nearest = nil
+        local smallestDistance = math.huge
+        local mousePos = Vector2.new(Mouse.X, Mouse.Y)
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player == LocalPlayer then continue end
+            if config.AliveCheck and not TargetingEngine.isAlive(player) then continue end
+            local part = TargetingEngine.findTargetPart(player, config.SelectedPart)
+            if not part then continue end
+            local distFromPlayer = (Camera.CFrame.Position - part.Position).Magnitude
+            if distFromPlayer > config.MaxDistance then continue end
+            if not TargetingEngine.passesTeamCheck(player) then continue end
+            if not TargetingEngine.passesWallCheck(player, part, Camera.CFrame.Position) then continue end
+            if config.FovCheck and not TargetingEngine.isInFOV(part.Position, config.FovSize) then continue end
+            local screenPos = Camera:WorldToViewportPoint(part.Position)
+            local distToCursor = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+            if distToCursor < smallestDistance then nearest = player; smallestDistance = distToCursor end
+        end
+        return nearest
+    end
+
+    function TargetingEngine.getPlayerClosestToCursorFromOrigin(origin)
+        local config = getgenv().FacilityTargeting
+        local nearest = nil
+        local smallestDistance = math.huge
+        local mousePos = Vector2.new(Mouse.X, Mouse.Y)
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player == LocalPlayer then continue end
+            if config.AliveCheck and not TargetingEngine.isAlive(player) then continue end
+            if player.Character and player.Character:FindFirstChildOfClass("ForceField") then continue end
+            local part = TargetingEngine.findTargetPart(player, config.SelectedPart)
+            if not part then continue end
+            local distFromOrigin = (origin - part.Position).Magnitude
+            if distFromOrigin > config.MaxDistance then continue end
+            if not TargetingEngine.passesTeamCheck(player) then continue end
+            if not TargetingEngine.passesWallCheck(player, part, origin) then continue end
+            if config.FovCheck and not TargetingEngine.isInFOV(part.Position, config.FovSize) then continue end
+            local screenPos = Camera:WorldToViewportPoint(part.Position)
+            local distToCursor = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+            if distToCursor < smallestDistance then nearest = part; smallestDistance = distToCursor end
+        end
+        return nearest
+    end
+end
+
+-- ==========================================
+--    AIMBOT SYSTEM
+-- ==========================================
+do
+    local AIM_KEY_MAP = {
+        ["MouseButton1"]  = { type = Enum.UserInputType.MouseButton1, key = nil },
+        ["MouseButton2"]  = { type = Enum.UserInputType.MouseButton2, key = nil },
+        ["MouseButton3"]  = { type = Enum.UserInputType.MouseButton3, key = nil },
+        ["E"]             = { type = Enum.UserInputType.Keyboard,     key = Enum.KeyCode.E },
+        ["F"]             = { type = Enum.UserInputType.Keyboard,     key = Enum.KeyCode.F },
+        ["Q"]             = { type = Enum.UserInputType.Keyboard,     key = Enum.KeyCode.Q },
+        ["LeftShift"]     = { type = Enum.UserInputType.Keyboard,     key = Enum.KeyCode.LeftShift },
+        ["LeftControl"]   = { type = Enum.UserInputType.Keyboard,     key = Enum.KeyCode.LeftControl },
+        ["LeftAlt"]       = { type = Enum.UserInputType.Keyboard,     key = Enum.KeyCode.LeftAlt },
+    }
+
+    local function inputMatchesAimKey(input)
+        local mapping = AIM_KEY_MAP[getgenv().FacilityAimbot.AimKey]
+        if not mapping then return false end
+        if input.UserInputType ~= mapping.type then return false end
+        if mapping.key and input.KeyCode ~= mapping.key then return false end
+        return true
+    end
+
+    local FOV = Drawing.new("Circle")
+    FOV.Filled    = false
+    FOV.NumSides  = 64
+    FOV.Visible   = false
+    FOV.Position  = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+    local function alignCameraToTarget(targetPosition)
+        local sensitivity = getgenv().FacilityAimbot.Sensitivity
+        local currentCF = Camera.CFrame
+        local targetCF = CFrame.new(currentCF.Position, targetPosition)
+        Camera.CFrame = currentCF:Lerp(targetCF, sensitivity)
+    end
+
+    UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        if not getgenv().FacilityAimbot.Enabled then return end
+        if not inputMatchesAimKey(input) then return end
+        if getgenv().FacilityAimbot.ToggleMode then
+            getgenv().FacilityAimbot._active = not getgenv().FacilityAimbot._active
+        else
+            getgenv().FacilityAimbot._active = true
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if not getgenv().FacilityAimbot.Enabled then return end
+        if not inputMatchesAimKey(input) then return end
+        if getgenv().FacilityAimbot.ToggleMode then return end
+        getgenv().FacilityAimbot._active = false
+    end)
+
+    RunService.RenderStepped:Connect(function()
+        local targeting = getgenv().FacilityTargeting
+        local aimbot   = getgenv().FacilityAimbot
+        local silent   = getgenv().FacilitySilentAim
+
+        FOV.Position  = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        FOV.Thickness = targeting.FovThickness
+        FOV.Radius    = targeting.FovSize
+
+        local anyEnabled = aimbot.Enabled or silent.Enabled
+        FOV.Visible = targeting.FovVisible and anyEnabled
+
+        if not anyEnabled then FOV.Color = targeting.OffColor; return end
+
+        if aimbot.Enabled and aimbot._active then
+            local target = TargetingEngine.getPlayerClosestToCursor()
+            if target then
+                local part = TargetingEngine.findTargetPart(target, targeting.SelectedPart)
+                if part then
+                    FOV.Color = targeting.LockColor
+                    alignCameraToTarget(part.Position)
+                    return
+                end
+            end
+        end
+
+        FOV.Color = targeting.FovColor
+    end)
+end
+
+-- ==========================================
+--    SILENT AIM SYSTEM
+-- ==========================================
+do
+    local function tryHookSilentAim()
+        if getgenv().FacilitySilentAim._hooked then return true end
+        if not (hookfunction and require) then
+            Library:Error("Silent Aim", "hookfunction or require not supported by your executor.", 8)
+            return false
+        end
+        local bulletFireSystem = ReplicatedStorage:FindFirstChild("BulletFireSystem")
+        if not bulletFireSystem then
+            Library:Error("Silent Aim", "BulletFireSystem not found. Game may have updated.", 8)
+            return false
+        end
+        local fastCast = bulletFireSystem:FindFirstChild("FastCastRedux")
+        local activeCastModule = fastCast and fastCast:FindFirstChild("ActiveCast")
+        if not activeCastModule then
+            Library:Error("Silent Aim", "ActiveCast module not found.", 8)
+            return false
+        end
+        local ok, activeCast = pcall(require, activeCastModule)
+        if not ok then
+            Library:Error("Silent Aim", "Could not access ActiveCast: " .. tostring(activeCast), 8)
+            return false
+        end
+        local gs  = workspace:FindFirstChild("Game Systems")
+        local lps = workspace:FindFirstChild("LocalPartStorage")
+        if not (gs and lps) then
+            Library:Error("Silent Aim", "Game Systems or LocalPartStorage missing.", 8)
+            return false
+        end
+        local oldNew
+        oldNew = hookfunction(rawget(activeCast, "new"), function(_, origin, dir, vel, ...)
+            if getgenv().FacilitySilentAim.Enabled then
+                local targetPart = TargetingEngine.getPlayerClosestToCursorFromOrigin(origin)
+                if targetPart then
+                    local newDir = targetPart.Position - origin
+                    return oldNew(_, origin, newDir, newDir.Unit * 9e9, ...)
+                end
+            end
+            return oldNew(_, origin, dir, vel, ...)
+        end)
+        getgenv().FacilitySilentAim._hooked = true
+        return true
+    end
+
+    task.spawn(function()
+        task.wait(2)
+        tryHookSilentAim()
+    end)
+end
+
+-- ==========================================
+--    HITBOX EXTENDER SYSTEM
+-- ==========================================
+do
+    local hitboxData = getgenv().FacilityHitbox._originalData
+
+    local function backupPart(part, playerName)
+        if hitboxData[playerName] then return end
+        hitboxData[playerName] = {
+            part         = part,
+            Size         = part.Size,
+            Transparency = part.Transparency,
+            Color        = part.Color,
+            Material     = part.Material,
+            CanCollide   = part.CanCollide,
+            Massless     = part.Massless,
+        }
+    end
+
+    local function restorePart(playerName)
+        local data = hitboxData[playerName]
+        if not data then return end
+        local part = data.part
+        if part and part.Parent then
+            pcall(function()
+                part.Size         = data.Size
+                part.Transparency = data.Transparency
+                part.Color        = data.Color
+                part.Material     = data.Material
+                part.CanCollide   = data.CanCollide
+                part.Massless     = data.Massless
+            end)
+        end
+        hitboxData[playerName] = nil
+    end
+
+    local function restoreAll()
+        for playerName in pairs(hitboxData) do restorePart(playerName) end
+    end
+
+    local function shouldSkipPlayer(player)
+        local cfg = getgenv().FacilityHitbox
+        if cfg.RespectWhitelist then
+            local lowerName = player.Name:lower()
+            for _, name in ipairs(getgenv().ESPWhitelist or {}) do
+                if tostring(name):lower() == lowerName then return true end
+            end
+        end
+        if cfg.RespectTeam then
+            local localFaction = LocalPlayer:FindFirstChild("PersonalFactionData")
+                and LocalPlayer.PersonalFactionData:FindFirstChild("PersonalFaction")
+            local targetFaction = player:FindFirstChild("PersonalFactionData")
+                and player.PersonalFactionData:FindFirstChild("PersonalFaction")
+            local sameFaction = localFaction and targetFaction
+                and localFaction.Value == targetFaction.Value
+            local sameRobloxTeam = (player.Team == LocalPlayer.Team)
+            if sameFaction or sameRobloxTeam then return true end
+        end
+        return false
+    end
+
+    local function applyHitbox(player)
+        local cfg  = getgenv().FacilityHitbox
+        local char = player.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then restorePart(player.Name); return end
+        local part = char:FindFirstChild(cfg.TargetPart)
+        if not (part and part:IsA("BasePart")) then return end
+        if shouldSkipPlayer(player) then restorePart(player.Name); return end
+        backupPart(part, player.Name)
+        local sz = cfg.Size
+        part.Size         = Vector3.new(sz, sz, sz)
+        part.Transparency = cfg.Transparency
+        part.Color        = cfg.Color
+        part.Material     = Enum.Material.ForceField
+        part.Massless     = true
+        if cfg.DisableCollide then part.CanCollide = false end
+    end
+
+    local accumulator = 0
+    local UPDATE_INTERVAL = 0.1
+    RunService.Heartbeat:Connect(function(dt)
+        accumulator = accumulator + dt
+        if accumulator < UPDATE_INTERVAL then return end
+        accumulator = 0
+        if not getgenv().FacilityHitbox.Enabled then
+            if next(hitboxData) then restoreAll() end
+            return
+        end
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then applyHitbox(player) end
+        end
+    end)
+
+    Players.PlayerRemoving:Connect(function(player) hitboxData[player.Name] = nil end)
+
+    Players.PlayerAdded:Connect(function(player)
+        player.CharacterAdded:Connect(function() hitboxData[player.Name] = nil end)
+    end)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            p.CharacterAdded:Connect(function() hitboxData[p.Name] = nil end)
+        end
+    end
+end
+
+-- ==========================================
+--    LIFECYCLE
+-- ==========================================
+LocalPlayer.CharacterAdded:Connect(function(char)
+    char:WaitForChild("HumanoidRootPart", math.huge)
+    originalCollideStates = {}
+    if noclipConnection then
+        task.wait(0.2)
+        snapshotCollideStates()
+    end
+end)
+
+-- ==========================================
+--    ENTRY POINT
+-- ==========================================
+task.spawn(function()
+    if not waitForLeaderstats(30) then
+        warn("[FacilityHub] leaderstats not found after 30s")
+    end
+    createSafePost()
+    cacheSpawnVisualizer()
+    monitorAutoBuy()
+end)
+
+-- ==========================================
+--    UI — MOVEMENT TAB  (remplace le bloc existant)
+-- ==========================================
+Sec.movPlayer  = Tab.Movement:Section("Player",  1)
+Sec.movPlayer2 = Tab.Movement:Section("Speeds",  2)
+Sec.movVehicle = Tab.Movement:Section("Vehicle", "full")
+Sec.movSwim    = Tab.Movement:Section("Swim",    "full")
+
+Sec.movPlayer:Toggle({ Text = "Fly", Flag = "Fly",
+    Callback = function(v)
+        getgenv().FlyEnabled = v
+        if v then task.spawn(sFLY) else NOFLY() end
+    end })
+    :Gear(function(p)
+        p:Slider({ Text = "Speed", Flag = "FlySpeed", Min = 5, Max = 1000, Suffix = " spd", Default = 50,
+            Callback = function(v) getgenv().FlySpeed = v; iyflyspeed = v/50 end })
+    end)
+
+Sec.movPlayer:Toggle({ Text = "Noclip", Flag = "UserNoclip",
+    Callback = function(v) getgenv().UserNoclipEnabled = v; refreshNoclip() end })
+
+Sec.movPlayer:Button({ Text = "No Fall Damage", Callback = function() applyNoFallDamage() end })
+
+Sec.movPlayer2:Toggle({ Text = "WalkSpeed", Flag = "WalkSpeed",
+    Callback = function(v) getgenv().WalkSpeedEnabled = v; applyWalkSpeed() end })
+    :Gear(function(p)
+        p:Slider({ Text = "Value", Flag = "WalkSpeedValue", Min = 16, Max = 500, Suffix = " spd", Default = 80,
+            Callback = function(v) getgenv().WalkSpeedValue = v; applyWalkSpeed() end })
+    end)
+
+Sec.movPlayer2:Toggle({ Text = "JumpPower", Flag = "JumpPower",
+    Callback = function(v) getgenv().JumpPowerEnabled = v; applyJumpPower() end })
+    :Gear(function(p)
+        p:Slider({ Text = "Value", Flag = "JumpPowerValue", Min = 5, Max = 500, Suffix = " pwr", Default = 60,
+            Callback = function(v) getgenv().JumpPowerValue = v; applyJumpPower() end })
+    end)
+
+Sec.movVehicle:Split({
+    function(left)
+        left:Toggle({ Text = "Car Fly", Flag = "CarFly",
+            Callback = function(v)
+                getgenv().CarFlyEnabled = v
+                if v then task.spawn(startCarFlying) end
+            end })
+        left:Slider({ Text = "Car Fly Speed", Flag = "CarFlySpeed", Min = 5, Max = 1500, Suffix = " spd", Default = 100,
+            Callback = function(v) getgenv().CarFlySpeed = v; vehicleflyspeed = v/50 end })
+    end,
+    function(right)
+        right:Toggle({ Text = "Car Noclip", Flag = "CarNoclip",
+            Callback = function(v)
+                getgenv().CarNoclipEnabled = v
+                if v then enableCarNoclip() else disableCarNoclip() end
+            end })
+    end,
+})
+
+Sec.movSwim:Toggle({ Text = "Swim in Air", Flag = "Swim",
+    Callback = function(v)
+        if v then startSwim() else stopSwim() end
+    end })
+
+-- ==========================================
+--    UI — AIMBOT TAB
+-- ==========================================
+Sec.aimMain    = Tab.Aimbot:Section("Aimbot",            1)
+Sec.aimSilent  = Tab.Aimbot:Section("Silent Aim",        2)
+Sec.aimTarget  = Tab.Aimbot:Section("Targeting (shared)", 1)
+Sec.aimFilters = Tab.Aimbot:Section("Filters (shared)",   2)
+Sec.aimFOV     = Tab.Aimbot:Section("FOV Circle",        "full")
+
+Sec.aimMain:Toggle({ Text = "Enable Aimbot", Flag = "AimbotEnabled",
+    Callback = function(v) getgenv().FacilityAimbot.Enabled = v end })
+
+Sec.aimMain:Toggle({ Text = "Toggle Mode (vs Hold)", Flag = "AimToggleMode",
+    Callback = function(v) getgenv().FacilityAimbot.ToggleMode = v end })
+
+Sec.aimMain:Dropdown({ Text = "Aim Key", Flag = "AimKey",
+    Options = {"MouseButton1","MouseButton2","MouseButton3","E","F","Q","LeftShift","LeftControl","LeftAlt"},
+    Default = "MouseButton2",
+    Callback = function(v) getgenv().FacilityAimbot.AimKey = v or "MouseButton2" end })
+
+Sec.aimMain:Slider({ Text = "Sensitivity", Flag = "AimSensitivity", Min = 0.01, Max = 1, Decimals = 2, Default = 0.1,
+    Callback = function(v) getgenv().FacilityAimbot.Sensitivity = v end })
+
+Sec.aimSilent:Toggle({ Text = "Enable Silent Aim", Flag = "SilentAimEnabled",
+    Callback = function(v) getgenv().FacilitySilentAim.Enabled = v end })
+Sec.aimSilent:Label("Does not support low-quality executors (Solara, Xeno).", { Style = "dim" })
+
+Sec.aimTarget:Dropdown({ Text = "Target Part", Flag = "TargetPart",
+    Options = {"Head","HumanoidRootPart","Torso","UpperTorso","LowerTorso"},
+    Default = "Head",
+    Callback = function(v) getgenv().FacilityTargeting.SelectedPart = v or "Head" end })
+
+Sec.aimTarget:Slider({ Text = "Max Distance", Flag = "TargetMaxDistance", Min = 100, Max = 5000, Suffix = " studs", Default = 2000,
+    Callback = function(v) getgenv().FacilityTargeting.MaxDistance = v end })
+
+Sec.aimFilters:Toggle({ Text = "Team Check", Flag = "TargetTeamCheck",
+    Callback = function(v) getgenv().FacilityTargeting.TeamCheck = v end })
+Sec.aimFilters:Toggle({ Text = "Wall Check", Flag = "TargetWallCheck",
+    Callback = function(v) getgenv().FacilityTargeting.WallCheck = v end })
+Sec.aimFilters:Toggle({ Text = "Alive Check", Flag = "TargetAliveCheck", Default = true,
+    Callback = function(v) getgenv().FacilityTargeting.AliveCheck = v end })
+Sec.aimFilters:Toggle({ Text = "FOV Check", Flag = "TargetFovCheck", Default = true,
+    Callback = function(v) getgenv().FacilityTargeting.FovCheck = v end })
+
+Sec.aimFOV:Split({
+    function(left)
+        left:Toggle({ Text = "Show FOV Circle", Flag = "FovVisible", Default = true,
+            Callback = function(v) getgenv().FacilityTargeting.FovVisible = v end })
+        left:Slider({ Text = "FOV Size", Flag = "FovSize", Min = 50, Max = 500, Suffix = " px", Default = 100,
+            Callback = function(v) getgenv().FacilityTargeting.FovSize = v end })
+        left:Slider({ Text = "Thickness", Flag = "FovThickness", Min = 0.5, Max = 5, Decimals = 1, Default = 0.6,
+            Callback = function(v) getgenv().FacilityTargeting.FovThickness = v end })
+    end,
+    function(right)
+        right:ColorPicker({ Text = "Idle Color", Flag = "FovColor",
+            Default = Color3.fromRGB(255, 255, 255),
+            Callback = function(c) getgenv().FacilityTargeting.FovColor = c end })
+        right:ColorPicker({ Text = "Locked Color", Flag = "FovLockColor",
+            Default = Color3.fromRGB(255, 0, 0),
+            Callback = function(c) getgenv().FacilityTargeting.LockColor = c end })
+        right:ColorPicker({ Text = "Disabled Color", Flag = "FovOffColor",
+            Default = Color3.fromRGB(150, 150, 150),
+            Callback = function(c) getgenv().FacilityTargeting.OffColor = c end })
+    end,
+})
+
+-- ==========================================
+--    UI — ESP TAB
+-- ==========================================
+Sec.espGen     = Tab.ESP:Section("General",        1)
+Sec.espVisual  = Tab.ESP:Section("Visual",         2)
+Sec.espWorld   = Tab.ESP:Section("World",          1)
+Sec.espWhite   = Tab.ESP:Section("Whitelist",      2)
+
+Sec.espGen:Paragraph({ Title = "ESP Notice", Content = "Some ESP features are still under development.", Icon = "info" })
+Sec.espGen:Toggle({ Text = "Enable ESP", Flag = "ESPEnabled",
+    Callback = function(v) getgenv().ESPEnabled = v end })
+Sec.espGen:Slider({ Text = "Max Distance", Flag = "ESPMaxDistance", Min = 100, Max = 10000, Suffix = " studs", Default = 5000,
+    Callback = function(v) getgenv().ESPMaxDistance = v end })
+
+Sec.espVisual:Toggle({ Text = "Box",           Flag = "ESPBox",      Default = true,  Callback = function(v) getgenv().ESPBox      = v end })
+Sec.espVisual:Toggle({ Text = "Chams (walls)", Flag = "ESPChams",    Default = true,  Callback = function(v) getgenv().ESPChams    = v end })
+Sec.espVisual:Toggle({ Text = "Name",          Flag = "ESPName",     Default = true,  Callback = function(v) getgenv().ESPName     = v end })
+Sec.espVisual:Toggle({ Text = "Distance",      Flag = "ESPDistance", Default = true,  Callback = function(v) getgenv().ESPDistance = v end })
+Sec.espVisual:Toggle({ Text = "Tracer",        Flag = "ESPTracer",   Default = false, Callback = function(v) getgenv().ESPTracer   = v end })
+
+Sec.espWorld:Toggle({ Text = "X-Ray",      Flag = "XRay",       Callback = function(v) getgenv().XRayEnabled       = v; if v then Visual.startXRay()       else Visual.stopXRay()       end end })
+Sec.espWorld:Toggle({ Text = "Fullbright", Flag = "Fullbright", Callback = function(v) getgenv().FullbrightEnabled  = v; if v then Visual.startFullbright()  else Visual.stopFullbright()  end end })
+Sec.espWorld:Toggle({ Text = "No Fog",     Flag = "NoFog",      Callback = function(v) getgenv().NoFogEnabled       = v; if v then Visual.startNoFog()       else Visual.stopNoFog()       end end })
+
+Sec.espWhite:Label("Players in this list won't have ESP shown.", { Style = "dim" })
+
+local function getPlayerListForDropdown()
+    local list = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then table.insert(list, p.Name) end
+    end
+    table.sort(list)
+    return list
+end
+
+Sec.whitelistDropdown = Sec.espWhite:Dropdown({
+    Text    = "Friends",
+    Flag    = "ESPWhitelistDropdown",
+    Options = getPlayerListForDropdown(),
+    Multi   = true,
+    Empty   = "none",
+    Callback = function(v) getgenv().ESPWhitelist = v or {} end,
+})
+
+Sec.espWhite:Button({ Text = "Refresh Player List", Callback = function()
+    Sec.whitelistDropdown:Refresh(getPlayerListForDropdown())
+end })
+
+Players.PlayerAdded:Connect(function()
+    pcall(function() Sec.whitelistDropdown:Refresh(getPlayerListForDropdown()) end)
+end)
+Players.PlayerRemoving:Connect(function()
+    task.wait(0.5)
+    pcall(function() Sec.whitelistDropdown:Refresh(getPlayerListForDropdown()) end)
+end)
+
+-- ==========================================
+--    UI — HITBOX TAB
+-- ==========================================
+Sec.hitGeneral = Tab.Hitbox:Section("General", 1)
+Sec.hitFilters = Tab.Hitbox:Section("Filters", 2)
+
+Sec.hitGeneral:Toggle({ Text = "Enable Hitbox Extender", Flag = "HitboxEnabled",
+    Callback = function(v) getgenv().FacilityHitbox.Enabled = v end })
+
+Sec.hitGeneral:Dropdown({ Text = "Target Part", Flag = "HitboxTargetPart",
+    Options = {"HumanoidRootPart","Head","Torso","UpperTorso","LowerTorso"},
+    Default = "HumanoidRootPart",
+    Callback = function(v) getgenv().FacilityHitbox.TargetPart = v or "HumanoidRootPart" end })
+
+Sec.hitGeneral:Slider({ Text = "Hitbox Size", Flag = "HitboxSize", Min = 2, Max = 30, Suffix = " studs", Default = 10,
+    Callback = function(v) getgenv().FacilityHitbox.Size = v end })
+
+Sec.hitGeneral:Slider({ Text = "Transparency", Flag = "HitboxTransparency", Min = 0, Max = 1, Decimals = 2, Default = 0.7,
+    Callback = function(v) getgenv().FacilityHitbox.Transparency = v end })
+
+Sec.hitGeneral:ColorPicker({ Text = "Hitbox Color", Flag = "HitboxColor",
+    Default = Color3.fromRGB(255, 255, 255),
+    Callback = function(c) getgenv().FacilityHitbox.Color = c end })
+
+Sec.hitFilters:Toggle({ Text = "Respect Team Check",    Flag = "HitboxRespectTeam",      Default = true, Callback = function(v) getgenv().FacilityHitbox.RespectTeam      = v end })
+Sec.hitFilters:Toggle({ Text = "Respect ESP Whitelist", Flag = "HitboxRespectWhitelist", Default = true, Callback = function(v) getgenv().FacilityHitbox.RespectWhitelist = v end })
+
+-- ==========================================
+--    UI — AUTOFARM TAB
+-- ==========================================
+Sec.farmMain   = Tab.AutoFarm:Section("AutoFarm",  1)
+Sec.farmConfig = Tab.AutoFarm:Section("Config",    2)
+Sec.farmRebirth = Tab.AutoFarm:Section("Rebirth / Cash", "full")
+
+Sec.farmMain:Paragraph({
+    Title   = "AutoFarm — BETA",
+    Content = "Still in development. If stuck: disable then re-enable the toggle.",
+    Icon    = "alert-triangle",
+    Style   = "warning",
+})
+
+Sec.farmMain:Toggle({ Text = "AutoFarm", Flag = "AutoFarm",
+    Callback = function(v)
+        getgenv().AutoFarmEnabled = v
+        if v then
+            applyNoFallDamage()
+            enableNoclip()
+            StatusUI.setActive("AutoFarm started")
+        else
+            disableNoclip()
+            depositedCrates = {}
+            StatusUI.setIdle()
+        end
+    end })
+
+Sec.farmMain:Toggle({ Text = "AutoBuy Only", Flag = "AutoBuyOnly",
+    Callback = function(v)
+        getgenv().AutoBuyOnlyEnabled = v
+        if v then
+            enableNoclip()
+            StatusUI.setActive("AutoBuy Only started")
+            task.spawn(runAutoBuyOnly)
+        else
+            disableNoclip()
+            StatusUI.setIdle()
+        end
+    end })
+
+Sec.farmMain:Toggle({ Text = "Status Overlay", Flag = "StatusUIEnabled", Default = true,
+    Callback = function(v) getgenv().StatusUIEnabled = v; StatusUI.setVisible(v) end })
+    :Gear(function(p)
+        -- panneau actif via le toggle, pas d'option sub ici
+        p:Label("Toggle shows the floating status panel.", { Style = "dim" })
+    end)
+
+Sec.farmMain:Slider({ Text = "Farm Fly Speed", Flag = "FarmFlySpeedSlider", Min = 50, Max = 1000, Suffix = " spd", Default = 300,
+    Callback = function(v) getgenv().FarmFlySpeed = v end })
+
+Sec.farmConfig:Dropdown({ Text = "Crate Type", Flag = "CrateTypeSelector",
+    Options = {"Air","Land","Naval"}, Multi = true, Default = {"Air","Land","Naval"},
+    Callback = function(v) getgenv().SelectedCrateTypes = v end })
+
+Sec.farmConfig:Dropdown({ Text = "Crates per Cycle", Flag = "CrateCycleCountSelector",
+    Options = {"2","3"}, Default = "3",
+    Callback = function(v) getgenv().CrateCycleCount = tonumber(v) or 3 end })
+
+Sec.farmConfig:Dropdown({ Text = "Money Mode", Flag = "MoneyModeSelector",
+    Options = {"Crate","CashCollector","Fusion"}, Default = "Crate",
+    Callback = function(v) getgenv().ModeRecupMonay = v or "Crate" end })
+
+Sec.farmRebirth:Split({
+    function(left)
+        left:Toggle({ Text = "Auto Rebirth", Flag = "AutoRebirth",
+            Callback = function(v)
+                getgenv().AutoRebirthEnabled = v
+                if v then
+                    task.spawn(function()
+                        while getgenv().AutoRebirthEnabled do
+                            pcall(function() ReplicatedStorage:WaitForChild("RebirthEVT", 5):FireServer() end)
+                            task.wait(1)
+                        end
+                    end)
+                end
+            end })
+    end,
+    function(right)
+        right:Input({ Text = "Cash Target", Flag = "CashTarget",
+            Default = tostring(getgenv().CashTarget),
+            Placeholder = "0 = unlimited",
+            Callback = function(v) getgenv().CashTarget = tonumber(v) or getgenv().CashTarget end })
+    end,
+})
+
+-- ==========================================
+--    UI — WEBHOOK TAB
+-- ==========================================
+Sec.wbConfig = Tab.Webhook:Section("Discord Webhook", 1)
+Sec.wbData   = Tab.Webhook:Section("Data",            2)
+Sec.wbReset  = Tab.Webhook:Section("Session",         "full")
+
+Sec.wbConfig:Input({ Text = "Webhook URL", Flag = "WebhookURL",
+    Placeholder = "https://discord.com/api/webhooks/...",
+    Callback = function(v) getgenv().WebhookURL = v end })
+
+Sec.wbConfig:Input({ Text = "Discord User ID", Flag = "WebhookUserID",
+    Placeholder = "123456789... (for ping)",
+    Callback = function(v) getgenv().WebhookUserID = v end })
+
+Sec.wbConfig:Toggle({ Text = "Ping User", Flag = "WebhookPingUser",
+    Callback = function(v) getgenv().WebhookPingUser = v end })
+
+Sec.wbConfig:Slider({ Text = "Send Every", Flag = "WebhookDelay", Min = 1, Max = 60, Suffix = " min", Default = 5,
+    Callback = function(v) getgenv().WebhookDelay = v end })
+
+Sec.wbConfig:Toggle({ Text = "Enable Auto Webhook", Flag = "WebhookEnabled",
+    Callback = function(v)
+        getgenv().WebhookEnabled = v
+        if v then getgenv().LastWebhookSend = tick() end
+    end })
+
+Sec.wbData:Dropdown({ Text = "Data to Send", Flag = "WebhookData",
+    Options = {"Name","Stats","Farm Activity"},
+    Multi = true, Default = {"Stats","Farm Activity"},
+    Callback = function(v) getgenv().WebhookData = v end })
+
+Sec.wbData:Button({ Text = "Test Webhook (send now)", Callback = function() task.spawn(Webhook.sendWebhook) end })
+
+Sec.wbReset:Split({
+    function(left)
+        left:Button({ Text = "Reset Farm Counters", Callback = function()
+            getgenv().FarmStats = {
+                cratesCollected = 0,
+                cratesSold      = 0,
+                cyclesCompleted = 0,
+                buttonsBought   = 0,
+            }
+            getgenv().StartStats = Webhook.getCurrentStats()
+            getgenv().StartTime  = os.time()
+            Library:Success("Reset", "Farm counters cleared.", 3)
+        end })
+    end,
+    function(right)
+        right:Label("Resets all session counters and the stat baseline.", { Style = "dim" })
+    end,
+})
+
+-- ==========================================
+--    UI — EXTRA (Useless) TAB
+-- ==========================================
+Sec.extraFling  = Tab.Extra:Section("Fling",  1)
+Sec.extraCamera = Tab.Extra:Section("Camera", 2)
+
+Sec.extraFling:Toggle({ Text = "Walk Fling", Flag = "WalkFling",
+    Callback = function(v)
+        if v then
+            if getgenv().SpinFlingEnabled then
+                Fling.stopSpinFling()
+                Library:Warn("Spin Fling disabled", "Only one fling mode at a time.", 3)
+            end
+            Fling.startWalkFling()
+            StatusUI.setActive("Walk Fling active")
+        else
+            Fling.stopWalkFling()
+            StatusUI.setIdle()
+        end
+    end })
+
+Sec.extraFling:Toggle({ Text = "Anti-Fling", Flag = "AntiFling",
+    Callback = function(v) if v then Fling.startAntiFling() else Fling.stopAntiFling() end end })
+
+Sec.extraCamera:Toggle({ Text = "Custom FOV", Flag = "CustomFOV",
+    Callback = function(v)
+        getgenv().CustomFOVEnabled = v
+        if v then Visual.startCustomFOV() else Visual.stopCustomFOV() end
+    end })
+    :Gear(function(p)
+        p:Slider({ Text = "FOV Value", Flag = "CustomFOVValue", Min = 30, Max = 120, Suffix = "°", Default = 70,
+            Callback = function(v) getgenv().CustomFOVValue = v; if getgenv().CustomFOVEnabled then Camera.FieldOfView = v end end })
+    end)
+
+Sec.extraCamera:Toggle({ Text = "Max Zoom", Flag = "MaxZoom",
+    Callback = function(v)
+        getgenv().MaxZoomEnabled = v
+        if v then Visual.startMaxZoom() else Visual.stopMaxZoom() end
+    end })
+    :Gear(function(p)
+        p:Slider({ Text = "Zoom Distance", Flag = "MaxZoomValue", Min = 50, Max = 2000, Suffix = " studs", Default = 400,
+            Callback = function(v) getgenv().MaxZoomValue = v; if getgenv().MaxZoomEnabled then Visual.applyMaxZoom() end end })
+    end)
+
+-- ==========================================
+--    UI — KEYBINDS TAB
+-- ==========================================
+Sec.kbSection = Tab.Keybinds:Section("Toggle Keybinds", "full")
+
+KB.Fly       = Sec.kbSection:Keybind({ Text = "Fly", Flag = "KeybindFly", Default = "Pipe", Mode = "toggle",
+    Callback = function(active)
+        getgenv().FlyEnabled = active
+        if active then task.spawn(sFLY) end
+    end })
+
+KB.Noclip    = Sec.kbSection:Keybind({ Text = "Noclip", Flag = "KeybindNoclip", Default = "Pipe", Mode = "toggle",
+    Callback = function(active)
+        getgenv().UserNoclipEnabled = active
+        refreshNoclip()
+    end })
+
+KB.WalkSpeed = Sec.kbSection:Keybind({ Text = "WalkSpeed", Flag = "KeybindWalkSpeed", Default = "Pipe", Mode = "toggle",
+    Callback = function(active)
+        getgenv().WalkSpeedEnabled = active
+        applyWalkSpeed()
+    end })
+
+KB.JumpPower = Sec.kbSection:Keybind({ Text = "JumpPower", Flag = "KeybindJumpPower", Default = "Pipe", Mode = "toggle",
+    Callback = function(active)
+        getgenv().JumpPowerEnabled = active
+        applyJumpPower()
+    end })
+
+Sec.kbSection:Button({ Text = "Reset All Keybinds", Callback = function()
+    KB.Fly:Set("Pipe")
+    KB.Noclip:Set("Pipe")
+    KB.WalkSpeed:Set("Pipe")
+    KB.JumpPower:Set("Pipe")
+end })
+
+-- ==========================================
+--    UI — MISC TAB
+-- ==========================================
+Sec.miscGen     = Tab.Misc:Section("General",  1)
+Sec.miscTycoon  = Tab.Misc:Section("Tycoon",   2)
+Sec.miscUpcoming = Tab.Misc:Section("Upcoming Features", "full")
+
+Sec.miscGen:Toggle({ Text = "Anti-AFK", Flag = "AntiAFK", Default = true,
+    Callback = function(v) getgenv().AntiAFKEnabled = v end })
+
+Sec.miscGen:Toggle({ Text = "Auto-Execute", Flag = "AutoExecute",
+    Callback = function(v)
+        getgenv().AutoExecute = v
+        if v and queue_on_teleport then
+            pcall(function()
+                queue_on_teleport([[loadstring(game:HttpGet('https://raw.githubusercontent.com/FacilityHUB/FacilityHub/refs/heads/main/WarTycoons'))()]])
+            end)
+        end
+    end })
+
+Sec.miscGen:ButtonRow({
+    { Text = "Server Hop", Callback = function()
+        local TS = game:GetService("TeleportService")
+        TS:Teleport(game.PlaceId, LocalPlayer)
+    end },
+    { Text = "Boost FPS", Callback = function() applyFPSBoost() end },
+})
+
+Sec.miscTycoon:Toggle({ Text = "Remove Laser",   Flag = "RemoveLaser",   Callback = function(v) getgenv().RemoveLaser   = v end })
+Sec.miscTycoon:Toggle({ Text = "Remove Electric", Flag = "RemoveElectric", Callback = function(v) getgenv().RemoveElectric = v end })
+
+Sec.miscUpcoming:Paragraph({
+    Title   = "Upcoming",
+    Content = "This section will receive several new features soon. Stay tuned.",
+    Icon    = "clock",
+})
+
+-- ==========================================
+--    UI — SETTINGS TAB (overlay + managers)
+-- ==========================================
+Sec.overlaySection = Tab.Settings:Section("Overlay", 1)
+
+Sec.overlaySection:Toggle({ Text = "Status Panel", Flag = "overlay_status", Default = false,
+    Hint = "Shows the floating farm status panel.",
+    Callback = function(state) StatusUI.setVisible(state) end })
+
+-- ==========================================
+--    FOOTER + MANAGERS (toujours en dernier)
+-- ==========================================
+Window:Action("Discord", function()
+    Library:Notify({ Title = "Facility", Text = "Discord...", Duration = 3 })
+end)
+
+SaveManager:SetLibrary(Library)
+InterfaceManager:SetLibrary(Library)
+InterfaceManager:SetWindow(Window)
+ThemeManager:SetLibrary(Library)
+
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+
+InterfaceManager:SetFolder("Facility")
+ThemeManager:SetFolder("Facility")
+ThemeManager:Load()
+SaveManager:SetFolder("Facility/game")
+
+InterfaceManager:BuildInterfaceSection(Tab.Settings, 1)
+SaveManager:BuildConfigSection(Tab.Settings, 2)
+ThemeManager:Mount(Window)
+
+Window:SetTab(Tab.AutoFarm)
+
+Library:Notify({
+    Title = "Facility Hub",
+    Text  = "v6.1.5.0c loaded.",
+    Duration = 5,
+})
+
+SaveManager:LoadAutoloadConfig()
